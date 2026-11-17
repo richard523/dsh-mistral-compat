@@ -26,6 +26,16 @@ bunx @deepseek-ai/dsh web
 
 The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it in the default browser for a local launch. An SSH launch only prints the host URL because the SSH client or editor owns the local forwarded address. Pass `--no-open` to run the server without opening a browser. See [Web UI guide](docs/user/guide/index.md).
 
+### ACP (agent chats from any client)
+
+The `acp` profile speaks the Agent Client Protocol over JSON-RPC stdio, so any ACP-capable client or editor (Zed, other agents, scripts) can spawn it and create/list/resume/close agent sessions:
+
+```sh
+bunx @deepseek-ai/dsh acp
+```
+
+Both the web and ACP profiles default to Mistral models (`mistral-large-latest`); on first run the CLI prompts for a `MISTRAL_API_KEY` (from https://console.mistral.ai) and stores it in `~/.dsh/.env` (0600). Set the env var instead to skip the prompt.
+
 ### Run from source
 
 To run from a repository checkout:
