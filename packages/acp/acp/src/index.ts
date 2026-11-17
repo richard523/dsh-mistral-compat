@@ -321,6 +321,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           sessionId: header.id,
           cwd: header.cwd,
           createdAt: header.createdAt,
+          ...(header.remoteHost === undefined ? {} : { remoteHost: header.remoteHost }),
           ...(active ? { active: true as const } : {}),
         }
       }))
@@ -333,12 +334,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
       const page = remaining.slice(0, sessionListPageSize)
       const next = remaining.length > page.length ? page.at(-1) : undefined
       return {
-        sessions: page.map(({ sessionId, cwd, active }) => ({
+        sessions: page.map(({ sessionId, cwd, remoteHost, active }) => ({
           sessionId,
           cwd,
           // general autocategorization: bucket by workspace/project name, so
-          // imported ACP chats group the same as native ones
-          _meta: { category: basename(cwd), ...(active === undefined ? {} : { active: true }) },
+          // imported ACP chats group the same as native ones; `host` tags
+          // sessions created on a remote/SSH host (any producer, not just
+          // one IDE) so shared homes separate per host
+          _meta: {
+            category: basename(cwd),
+            ...(remoteHost === undefined ? {} : { host: remoteHost }),
+            ...(active === undefined ? {} : { active: true }),
+          },
         })),
         ...next === undefined ? {} : { nextCursor: encodeSessionListCursor(next) },
       }

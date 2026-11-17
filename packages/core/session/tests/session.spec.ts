@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -1285,6 +1286,52 @@ describe('SessionStore', () => {
 
     expect(ctx.sessions.get(session.id)).toBe(session)
     expect(ctx.sessions.list()).toEqual([session])
+  })
+
+  it('stamps remoteHost when launched through SSH or DSH_SESSION_REMOTE_HOST, and keeps it on fork', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    vi.stubEnv('SSH_CONNECTION', '10.0.0.2 22 10.0.0.1 5522')
+    try {
+      const remote = ctx.sessions.create(brandString<SessionId>('remote'), { meta: { cwd: '/work' } })
+      expect(remote.header.remoteHost).toBe(hostname())
+      const child = ctx.sessions.fork(remote)
+      expect(child.header.remoteHost).toBe(hostname())
+    } finally {
+      vi.unstubAllEnvs()
+    }
+
+    const local = ctx.sessions.create(brandString<SessionId>('local'), { meta: { cwd: '/work' } })
+    expect(local.header.remoteHost).toBeUndefined()
+
+    vi.stubEnv('DSH_SESSION_REMOTE_HOST', 'buildbox.local')
+    try {
+      const tagged = ctx.sessions.create(brandString<SessionId>('tagged'), { meta: { cwd: '/work' } })
+      expect(tagged.header.remoteHost).toBe('buildbox.local')
+      // An explicit caller-supplied host wins over detection.
+      const explicit = ctx.sessions.create(brandString<SessionId>('explicit'), {
+        meta: { cwd: '/work', remoteHost: 'other-box' },
+      })
+      expect(explicit.header.remoteHost).toBe('other-box')
+      vi.stubEnv('DSH_SESSION_REMOTE_HOST', 'bad host!')
+      expect(() => ctx.sessions.create(brandString<SessionId>('bad-host'))).toThrow(/DSH_SESSION_REMOTE_HOST/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('rejects an invalid stored remoteHost', () => {
+    expect(() => Session.fromRestore(
+      brandString<SessionId>('h'),
+      [],
+      {
+        version: SESSION_FORMAT_VERSION, id: brandString<SessionId>('h'), createdAt: 1, isSeeded: false,
+        remoteHost: 'bad host!',
+      },
+      SessionLogOffset(0),
+      'detached',
+      [],
+    )).toThrow(/remoteHost/)
   })
 
   it('rejects duplicate ids and supports seeding', async () => {

@@ -7,6 +7,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import { hostname } from 'node:os'
 import { isAbsolute } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { assertNever, deepFreeze, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -135,6 +136,14 @@ function validateSessionHeader(id: SessionId, input: unknown): SessionHeader {
   }
   if (record.agentPreset !== undefined && typeof record.agentPreset !== 'string') {
     throw new Error('session header agentPreset must be a string')
+  }
+  if (record.remoteHost !== undefined) {
+    if (typeof record.remoteHost !== 'string'
+      || record.remoteHost.length === 0
+      || record.remoteHost.length > 255
+      || !/^[A-Za-z0-9][A-Za-z0-9_.@-]*$/.test(record.remoteHost)) {
+      throw new Error('session header remoteHost must be a non-empty host name of at most 255 characters')
+    }
   }
   return deepFreeze(record as unknown as SessionHeader)
 }
@@ -1183,6 +1192,38 @@ export class SessionStore extends Service {
   }
 
   /**
+   * Host tag stamped on sessions this process creates: the explicit
+   * `DSH_SESSION_REMOTE_HOST` override when set, otherwise this machine's
+   * hostname when the launcher inherited an SSH session (`SSH_CONNECTION` or
+   * `SSH_TTY` on the process layer only — `.env` values never establish one,
+   * mirroring `launchedThroughSsh`). Local runs stay untagged so existing
+   * on-disk layouts are unchanged.
+   * @returns the host tag, or `undefined` for a local run.
+   */
+  private resolveRemoteHost(): string | undefined {
+    const override = process.env.DSH_SESSION_REMOTE_HOST
+    if (override !== undefined && override !== '') {
+      if (override.length > 255 || !/^[A-Za-z0-9][A-Za-z0-9_.@-]*$/.test(override)) {
+        throw new Error('DSH_SESSION_REMOTE_HOST must be a non-empty host name of at most 255 characters')
+      }
+      return override
+    }
+    const snapshot = (this.ctx as unknown as {
+      get(key: string): unknown
+    }).get('launchEnvironment') as
+      | { getFrom(name: string, sources: readonly string[]): { value: string } | undefined }
+      | undefined
+    const throughSsh = ['SSH_CONNECTION', 'SSH_TTY'].some((name) => {
+      const value = snapshot === undefined
+        ? process.env[name]
+        : snapshot.getFrom(name, ['process'])?.value
+      return value !== undefined && value !== ''
+    })
+    if (!throughSsh) return undefined
+    return hostname()
+  }
+
+  /**
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
@@ -1269,6 +1310,9 @@ export class SessionStore extends Service {
     }
     const seed = options?.seed
     const meta = options?.meta
+    // Fresh sessions inherit no host from the caller only when none was
+    // supplied: forks and restores carry the stored header's tag.
+    const remoteHost = meta?.remoteHost ?? this.resolveRemoteHost()
     const header: SessionHeader = {
       version: SESSION_FORMAT_VERSION,
       id: sessionId,
@@ -1279,6 +1323,7 @@ export class SessionStore extends Service {
       ...meta?.origin === undefined ? {} : { origin: meta.origin },
       ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
       ...meta?.agentPreset === undefined ? {} : { agentPreset: meta.agentPreset },
+      ...remoteHost === undefined ? {} : { remoteHost },
     }
     const session = Session.create(sessionId, seed, header, options?.inheritedEventCount, this.projections)
     attachments.set(session, null)
@@ -1494,6 +1539,7 @@ export class SessionStore extends Service {
       inheritedEventCount: SessionLogOffset(resolved === undefined ? 0 : resolved + 1),
       meta: {
         ...liveSource.header.cwd !== undefined ? { cwd: liveSource.header.cwd } : {},
+        ...liveSource.header.remoteHost !== undefined ? { remoteHost: liveSource.header.remoteHost } : {},
         isSeeded: true,
       },
     })

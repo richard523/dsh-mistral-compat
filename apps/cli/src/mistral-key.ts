@@ -21,7 +21,9 @@ export async function ensureMistralApiKey(): Promise<void> {
   const muted = rl as unknown as { _writeToOutput?: (s: string) => void }
   const original = muted._writeToOutput?.bind(rl)
   if (original !== undefined) muted._writeToOutput = (s: string) => original(s.replace(/[^\n]/g, '*'))
-  const key = (await rl.question('Mistral API key (https://console.mistral.ai), empty to skip: ')).trim()
+  const key = await new Promise<string>(resolve => {
+    rl.question('Mistral API key (https://console.mistral.ai), empty to skip: ', resolve)
+  }).then(answer => answer.trim())
   rl.close()
   if (key === '') {
     process.stderr.write('dsh: no key stored; set MISTRAL_API_KEY later or pick another provider in settings.\n')

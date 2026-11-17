@@ -30,6 +30,7 @@ export interface DeepSeekSessionLogWireHeader {
   readonly origin?: 'subagent'
   readonly delegationDepth?: number
   readonly agentPreset?: string
+  readonly remoteHost?: string
 }
 
 /** Raw-number surface mutation serialized on the external request wire. */

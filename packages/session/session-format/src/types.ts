@@ -23,6 +23,13 @@ export interface SessionFormatHeader extends SessionFormatJsonObject {
   readonly origin?: 'subagent'
   readonly delegationDepth: number
   readonly agentPreset?: string
+  /**
+   * Host the session was created on when the harness ran over SSH (or an
+   * explicit host tag was configured); absent for local runs. Storage keys
+   * remote sessions under a host-prefixed project directory so a shared home
+   * separates per host. Current-format field only.
+   */
+  readonly remoteHost?: string
 }
 
 /** One decoded logical Session event. */

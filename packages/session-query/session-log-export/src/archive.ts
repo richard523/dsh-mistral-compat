@@ -129,6 +129,7 @@ export function serializeSessionLog(
     ...header.origin !== undefined ? { origin: header.origin } : {},
     delegationDepth: header.delegationDepth ?? 0,
     ...header.agentPreset !== undefined ? { agentPreset: header.agentPreset } : {},
+    ...header.remoteHost !== undefined ? { remoteHost: header.remoteHost } : {},
   })]
   /* jscpd:ignore-end */
   for (const event of events) lines.push(JSON.stringify(event))

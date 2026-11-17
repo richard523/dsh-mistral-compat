@@ -449,6 +449,7 @@ describe('JsonlSessionPersistence: format helpers', () => {
       origin: 'subagent',
       delegationDepth: 2,
       agentPreset: 'minimal',
+      remoteHost: 'buildbox.local',
     }
     const events = [
       ...Array.from({ length: 3 }, (_, seq) => ({
@@ -521,6 +522,18 @@ describe('JsonlSessionPersistence: format helpers', () => {
     expect(() => projectKey('')).toThrow(/empty project path/)
   })
 
+  it('projectKey scopes a remote host with an @ prefix that plain slugs never contain', () => {
+    expect(projectKey('/w/project', 'buildbox.local')).toBe('--buildbox.local@w-project--')
+    expect(projectKey('/w/project', 'buildbox.local')).not.toBe(projectKey('/w/project'))
+    expect(projectKey('/w/project', 'other-box')).not.toBe(projectKey('/w/project', 'buildbox.local'))
+    expect(projectKey('/a@b', undefined)).toBe('--a~0040b--')
+    expect(projectDir('/root', '/w/project', 'buildbox.local')).toBe('/root/--buildbox.local@w-project--')
+    expect(sessionDir('/root', '/w/project', brandString<SessionId>('session-1'), 'buildbox.local'))
+      .toBe('/root/--buildbox.local@w-project--/session-1')
+    expect(logPath('/root', '/w/project', brandString<SessionId>('session-1'), 'none', 'buildbox.local'))
+      .toBe('/root/--buildbox.local@w-project--/session-1/session.v4.jsonl')
+  })
+
   it('resolves a relative custom root before storing a session', async () => {
     const absoluteRoot = await freshRoot()
     const ctx = new Context()
@@ -532,6 +545,38 @@ describe('JsonlSessionPersistence: format helpers', () => {
     await writeLog(ctx.sessionPersistence, m, oneTurnLog())
     expect((await stat(rawLogPath(resolve(absoluteRoot), '/work', m.id))).isFile()).toBe(true)
     await fiber.dispose()
+  })
+
+  it('keys a remote-host session under --<host>@<project>-- and rediscovers it by id', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    const fiber = await ctx.plugin(JsonlSessionPersistence, { root: absoluteRoot, compression: 'none' })
+    const remote = { ...meta('remote-session', '/work'), remoteHost: 'buildbox.local' }
+    const local = meta('local-session', '/work')
+    await writeLog(ctx.sessionPersistence, remote, oneTurnLog())
+    await writeLog(ctx.sessionPersistence, local, oneTurnLog())
+
+    // On-disk separation: same cwd, different host-prefixed project directories.
+    const remotePath = logPath(absoluteRoot, '/work', remote.id, 'none', 'buildbox.local')
+    expect(remotePath).toBe(join(absoluteRoot, '--buildbox.local@work--', remote.id, 'session.v4.jsonl'))
+    expect((await stat(remotePath)).isFile()).toBe(true)
+    expect((await stat(rawLogPath(absoluteRoot, '/work', local.id))).isFile()).toBe(true)
+
+    // Listing and stat expose the header's remoteHost; discovery by id scans both layouts.
+    const listed = await ctx.sessionPersistence.list()
+    const remoteSnap = listed.find(item => item.header.id === remote.id)
+    expect(remoteSnap?.header.remoteHost).toBe('buildbox.local')
+    expect((await ctx.sessionPersistence.stat(remote.id))?.header.remoteHost).toBe('buildbox.local')
+
+    // A fresh backend instance (new process view) opens the remote session by id alone.
+    await fiber.dispose()
+    const ctx2 = new Context()
+    const fiber2 = await ctx2.plugin(JsonlSessionPersistence, { root: absoluteRoot, compression: 'none' })
+    const read = await readAll(ctx2.sessionPersistence, remote.id)
+    expect(read.meta.remoteHost).toBe('buildbox.local')
+    expect(read.meta.cwd).toBe('/work')
+    expect(read.events).toHaveLength(oneTurnLog().length)
+    await fiber2.dispose()
   })
 })
 

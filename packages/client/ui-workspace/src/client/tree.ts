@@ -27,9 +27,20 @@ export const UNGROUPED_KEY = ''
 export function owningGroupKey(
   workspaces: readonly WorkspaceView[],
   sessionId: SessionId,
+  remoteHost?: string,
 ): string {
-  return (workspaces.find(workspace => workspace.sessionIds.includes(sessionId))
-    ?.workspaceId as string | undefined) ?? UNGROUPED_KEY
+  const workspaceId = workspaces.find(workspace => workspace.sessionIds.includes(sessionId))
+    ?.workspaceId as string | undefined
+  if (workspaceId === undefined) return remoteHost === undefined ? UNGROUPED_KEY : `@${remoteHost}`
+  return remoteHost === undefined ? workspaceId : `${workspaceId}@${remoteHost}`
+}
+
+/**
+ * Group key scoping one Workspace to one remote host. Local sessions keep the
+ * plain Workspace id so existing expansion state and keys are unchanged.
+ */
+export function hostGroupKey(workspaceId: string, remoteHost: string | undefined): string {
+  return remoteHost === undefined ? workspaceId : `${workspaceId}@${remoteHost}`
 }
 
 /** Pending interaction kinds with dedicated Workspace-row presentation. */
@@ -64,6 +75,8 @@ export interface SessionNode {
   updatedAt: number
   /** Session working directory; absent when the Host reports none or an empty path. */
   cwd?: string
+  /** Remote host the session was created on (SSH-launched run); absent for local sessions. */
+  remoteHost?: string
 }
 
 /** Session order selected by the Workspace browser. */
@@ -349,24 +362,50 @@ function groupByWorkspace(
     // The archived-only view lists archives, not the Workspace inventory, so
     // a Workspace without archived Sessions contributes no group.
     if (archivedFilter === 'only' && members.length === 0) continue
-    groups.push(buildGroup(
-      workspace.workspaceId, workspace.workspaceId, workspace.path,
-      Date.parse(workspace.createdAt), workspace.title, members,
-    ))
+    // Split the Workspace per remote host so SSH-created sessions group
+    // separately from local ones, the same separation the session store keys
+    // on disk; local members keep the plain Workspace key. A memberless
+    // Workspace still contributes its (local) group.
+    const byHost = new Map<string | undefined, SessionSummary[]>()
+    if (members.length === 0) byHost.set(undefined, [])
+    for (const member of members) {
+      const host = member.remoteHost
+      const bucket = byHost.get(host)
+      if (bucket === undefined) byHost.set(host, [member])
+      else bucket.push(member)
+    }
+    for (const [host, hostMembers] of byHost) {
+      groups.push(buildGroup(
+        hostGroupKey(workspace.workspaceId as string, host),
+        workspace.workspaceId, workspace.path,
+        Date.parse(workspace.createdAt),
+        host === undefined ? workspace.title : `${workspace.title}@${host}`,
+        hostMembers,
+      ))
+    }
   }
   const stray = list.ids
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, current, archived, archivedFilter))
   if (stray.length > 0) {
-    groups.push(buildGroup(
-      UNGROUPED_KEY,
-      undefined,
-      undefined,
-      undefined,
-      '',
-      orderedUngrouped(stray, ungroupedOrder, list.byId),
-    ))
+    const byHost = new Map<string | undefined, SessionSummary[]>()
+    for (const member of stray) {
+      const host = member.remoteHost
+      const bucket = byHost.get(host)
+      if (bucket === undefined) byHost.set(host, [member])
+      else bucket.push(member)
+    }
+    for (const [host, hostMembers] of byHost) {
+      groups.push(buildGroup(
+        host === undefined ? UNGROUPED_KEY : `@${host}`,
+        undefined,
+        undefined,
+        undefined,
+        host ?? '',
+        orderedUngrouped(hostMembers, host === undefined ? ungroupedOrder : undefined, list.byId),
+      ))
+    }
   }
   return groups
 }
@@ -411,6 +450,7 @@ function sessionNode(
     archived: archived.has(s.id),
     updatedAt: s.updatedAt,
     ...(s.cwd === undefined || s.cwd === '' ? {} : { cwd: s.cwd }),
+    ...(s.remoteHost === undefined ? {} : { remoteHost: s.remoteHost }),
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
   }
 }
@@ -444,7 +484,7 @@ export function deriveGroups(
   const current = mainSessionId(list)
   const currentGroup = current === undefined
     ? undefined
-    : owningGroupKey(workspaces, current)
+    : owningGroupKey(workspaces, current, list.byId[current]?.remoteHost)
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)

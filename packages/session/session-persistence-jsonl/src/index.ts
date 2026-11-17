@@ -378,7 +378,7 @@ class JsonlSessionPersistence extends SessionPersistence {
    * @returns the artifact kind and absolute path.
    */
   private locate(meta: SessionHeader): SessionLocation {
-    return { kind: 'jsonl', path: logPath(this.root, meta.cwd, meta.id, this.compression) }
+    return { kind: 'jsonl', path: logPath(this.root, meta.cwd, meta.id, this.compression, meta.remoteHost) }
   }
 
   // --- SessionPersistence service API ---
@@ -460,7 +460,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     try {
       const resolved = await this.findLog(id, options?.signal)
       if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
-      lease = await this.acquireLease(id, undefined, dirname(resolved.currentPath))
+      lease = await this.acquireLease(id, undefined, undefined, dirname(resolved.currentPath))
       const prepared = await this.requireStoredLog(id, options?.signal)
       options?.signal?.throwIfAborted()
       let stored: CurrentStoredLog
@@ -996,7 +996,7 @@ class JsonlSessionPersistence extends SessionPersistence {
    * @param dir - the resolved directory of an existing artifact, when known.
    * @returns the held lock.
    */
-  private acquireLease(id: SessionId, cwd: string | undefined, dir = sessionDir(this.root, cwd, id)): Promise<SessionWriteLease> {
+  private acquireLease(id: SessionId, cwd: string | undefined, remoteHost?: string, dir = sessionDir(this.root, cwd, id, remoteHost)): Promise<SessionWriteLease> {
     return SessionWriteLease.acquire(dir, id)
   }
 
@@ -1009,8 +1009,8 @@ class JsonlSessionPersistence extends SessionPersistence {
   async acquireWriteLease(header: SessionHeader): Promise<SessionWriteLease> {
     // Refuse an opposite-encoding artifact before the lock's mkdir publishes
     // the session directory — the last moment the directory can be absent.
-    await this.rejectOppositeArtifact(header.cwd, header.id)
-    return this.acquireLease(header.id, header.cwd)
+    await this.rejectOppositeArtifact(header.cwd, header.id, header.remoteHost)
+    return this.acquireLease(header.id, header.cwd, header.remoteHost)
   }
 
   /** Decode complete frames and retain complete JSONL records from a torn final frame. */
@@ -1295,6 +1295,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     readonly origin?: 'subagent'
     readonly delegationDepth: number
     readonly agentPreset?: string
+    readonly remoteHost?: string
   }): SessionHeader {
     /* v8 ignore next 3 -- readable catalog results are restored to its configured current version. */
     if (header.version !== SESSION_FORMAT_VERSION) {
@@ -1312,6 +1313,7 @@ class JsonlSessionPersistence extends SessionPersistence {
       ...(header.origin === undefined ? {} : { origin: header.origin }),
       delegationDepth: header.delegationDepth,
       ...(header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset }),
+      ...(header.remoteHost === undefined ? {} : { remoteHost: header.remoteHost }),
     }
   }
 
@@ -1323,10 +1325,10 @@ class JsonlSessionPersistence extends SessionPersistence {
     inheritedEventCount: SessionLogOffsetType,
     events: readonly SessionEvent[],
   ): Promise<void> {
-    const project = projectDir(this.root, meta.cwd)
-    const dir = sessionDir(this.root, meta.cwd, meta.id)
-    const finalPath = logPath(this.root, meta.cwd, meta.id, this.compression)
-    await this.rejectOppositeArtifact(meta.cwd, meta.id)
+    const project = projectDir(this.root, meta.cwd, meta.remoteHost)
+    const dir = sessionDir(this.root, meta.cwd, meta.id, meta.remoteHost)
+    const finalPath = logPath(this.root, meta.cwd, meta.id, this.compression, meta.remoteHost)
+    await this.rejectOppositeArtifact(meta.cwd, meta.id, meta.remoteHost)
     const content = await this.encodeMaterialization(meta, inheritedEventCount, events)
     /* v8 ignore next -- native Windows coverage exercises this platform dispatch; Linux covers the POSIX peer */
     if (process.platform === 'win32') {
@@ -1468,7 +1470,7 @@ class JsonlSessionPersistence extends SessionPersistence {
    */
   private async appendLines(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
     const content = await this.encodeEventBatch(events)
-    const path = logPath(this.root, meta.cwd, meta.id, this.compression)
+    const path = logPath(this.root, meta.cwd, meta.id, this.compression, meta.remoteHost)
     const handle = await open(path, 'a')
     let closed = false
     const closeAppendHandle = async (): Promise<void> => {
@@ -1508,7 +1510,7 @@ class JsonlSessionPersistence extends SessionPersistence {
 
   /** Truncate the log file to `offset` bytes and fsync (discard the crash tail). */
   private async repair(meta: SessionHeader, offset: number): Promise<void> {
-    const path = logPath(this.root, meta.cwd, meta.id, this.compression)
+    const path = logPath(this.root, meta.cwd, meta.id, this.compression, meta.remoteHost)
     await truncate(path, offset)
     const handle = await open(path, 'r+')
     try {
@@ -1675,6 +1677,7 @@ class JsonlSessionPersistence extends SessionPersistence {
         meta.id,
         storedVersion,
         this.compression,
+        meta.remoteHost,
       )
     } catch (error) {
       throw new Error(`corrupt session log "${path}": header id cannot name a storage path`, { cause: error })
@@ -1776,8 +1779,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
   }
 
-  private async rejectOppositeArtifact(cwd: string | undefined, id: SessionId): Promise<void> {
-    const path = await this.findOppositeGenerationInDirectory(sessionDir(this.root, cwd, id))
+  private async rejectOppositeArtifact(cwd: string | undefined, id: SessionId, remoteHost?: string): Promise<void> {
+    const path = await this.findOppositeGenerationInDirectory(sessionDir(this.root, cwd, id, remoteHost))
     if (path !== undefined) throw this.encodingMismatch(path)
   }
 

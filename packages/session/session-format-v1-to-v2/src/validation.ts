@@ -15,7 +15,7 @@ import { assertReleasedArtifactRelationships } from '@deepseek-ai/dsh-session-fo
 import { RELEASED_V2_EVENT_DISPOSITIONS } from './dispositions.ts'
 
 const HEADER_REQUIRED = ['version', 'id', 'createdAt', 'isSeeded', 'delegationDepth'] as const
-const HEADER_OPTIONAL = ['cwd', 'parentSession', 'origin', 'agentPreset'] as const
+const HEADER_OPTIONAL = ['cwd', 'parentSession', 'origin', 'agentPreset', 'remoteHost'] as const
 const EVENT_REQUIRED = ['type', 'seq', 'time', 'data'] as const
 const SURFACE_TYPES = new Set(['user/message', 'assistant/message', 'tool/result'])
 const SURFACE_OPTIONAL = ['ignorable', 'sourceEventSeqs', 'surfaceOp'] as const
@@ -41,7 +41,7 @@ export function assertReleasedV2Header(header: SessionFormatHeader): void {
   if (record['cwd'] !== undefined && (typeof record['cwd'] !== 'string' || !isAbsolute(record['cwd']))) {
     throw new SessionFormatError('format v2 header cwd must be absolute')
   }
-  for (const key of ['parentSession', 'agentPreset'] as const) {
+  for (const key of ['parentSession', 'agentPreset', 'remoteHost'] as const) {
     if (record[key] !== undefined && typeof record[key] !== 'string') {
       throw new SessionFormatError(`format v2 header ${key} must be a string`)
     }

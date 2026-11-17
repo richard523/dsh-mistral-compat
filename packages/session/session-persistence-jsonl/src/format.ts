@@ -91,10 +91,11 @@ interface HeaderLine {
   origin?: 'subagent'
   delegationDepth: number
   agentPreset?: string
+  remoteHost?: string
 }
 
 const HEADER_REQUIRED_KEYS = ['type', 'version', 'id', 'createdAt', 'isSeeded', 'delegationDepth'] as const
-const HEADER_OPTIONAL_KEYS = ['cwd', 'parentSession', 'origin', 'agentPreset'] as const
+const HEADER_OPTIONAL_KEYS = ['cwd', 'parentSession', 'origin', 'agentPreset', 'remoteHost'] as const
 const HEADER_KEYS = new Set<string>([...HEADER_REQUIRED_KEYS, ...HEADER_OPTIONAL_KEYS])
 
 /**
@@ -150,6 +151,7 @@ function fromHeaderLine(line: HeaderLine): SessionStorageMetadata {
       ...line.origin !== undefined ? { origin: line.origin } : {},
       delegationDepth: line.delegationDepth,
       ...line.agentPreset !== undefined ? { agentPreset: line.agentPreset } : {},
+      ...line.remoteHost !== undefined ? { remoteHost: line.remoteHost } : {},
     },
     inheritedEventCount: SessionLogOffset(0),
   }
@@ -182,6 +184,8 @@ function isHeaderLine(value: unknown): value is HeaderLine {
       || (value as { origin?: unknown }).origin === 'subagent')
     && ((value as { agentPreset?: unknown }).agentPreset === undefined
       || typeof (value as { agentPreset?: unknown }).agentPreset === 'string')
+    && ((value as { remoteHost?: unknown }).remoteHost === undefined
+      || typeof (value as { remoteHost?: unknown }).remoteHost === 'string')
   )
 }
 
@@ -214,20 +218,20 @@ export function encodeSegment(raw: string): string {
 }
 
 /**
- * Build the readable directory key for a project path.
+ * Build the readable slug for a project path or host name.
  * Filesystem separators and drive separators become `-`; unsafe code units use
- * the same `~XXXX` escape as session ids. The key is bounded for filesystem
+ * the same `~XXXX` escape as session ids. The slug is bounded for filesystem
  * component limits. Separator replacement and truncation are intentionally
  * lossy, following the common human-navigable project-directory convention.
- * @param cwd - the session's project directory.
- * @returns a single filesystem-safe project directory name.
+ * @param value - the project path or host name to slugify.
+ * @returns the bounded slug without the `--` wrapper.
  */
-export function projectKey(cwd: string): string {
-  if (cwd.length === 0) throw new Error('cannot encode an empty project path')
+function slugOf(value: string): string {
+  if (value.length === 0) throw new Error('cannot encode an empty project path')
   let readable = ''
   let separatorRun = false
-  for (let i = 0; i < cwd.length; i++) {
-    const code = cwd.charCodeAt(i)
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
     const ch = String.fromCharCode(code)
     if (ch === '/' || ch === '\\' || ch === ':') {
       if (!separatorRun) readable += '-'
@@ -240,8 +244,29 @@ export function projectKey(cwd: string): string {
       separatorRun = false
     }
   }
-  const slug = readable.replace(/^-+/, '') || 'root'
-  return `--${slug.slice(0, 251)}--`
+  return readable.replace(/^-+/, '') || 'root'
+}
+
+/**
+ * Build the readable directory key for a project path, optionally scoped to a
+ * remote host. Filesystem separators and drive separators become `-`; unsafe
+ * code units use the same `~XXXX` escape as session ids. The key is bounded for
+ * filesystem component limits. Separator replacement and truncation are
+ * intentionally lossy, following the common human-navigable project-directory
+ * convention.
+ *
+ * A session recorded with a `remoteHost` gets `--<host-slug>@<project-slug>--`
+ * so a root shared across machines separates the same project per host (the
+ * `@` never appears in a plain slug, so local and remote keys cannot collide).
+ * @param cwd - the session's project directory.
+ * @param remoteHost - the session's remote host tag, if any.
+ * @returns a single filesystem-safe project directory name.
+ */
+export function projectKey(cwd: string, remoteHost?: string): string {
+  const slug = slugOf(cwd)
+  if (remoteHost === undefined) return `--${slug.slice(0, 251)}--`
+  const hostSlug = slugOf(remoteHost)
+  return `--${(hostSlug + '@' + slug).slice(0, 251)}--`
 }
 
 /**
@@ -249,11 +274,12 @@ export function projectKey(cwd: string): string {
  * may be local or shared; this grouping does not prescribe its deployment.
  * @param root - the backend's session root directory.
  * @param cwd - the session's project directory; `undefined` selects `_no-cwd`.
+ * @param remoteHost - the session's remote host tag, if any.
  * @returns the project directory path under `root`.
  */
-export function projectDir(root: string, cwd: string | undefined): string {
+export function projectDir(root: string, cwd: string | undefined, remoteHost?: string): string {
   if (cwd === undefined) return join(root, '_no-cwd')
-  return join(root, projectKey(cwd))
+  return join(root, projectKey(cwd, remoteHost))
 }
 
 /**
@@ -262,10 +288,11 @@ export function projectDir(root: string, cwd: string | undefined): string {
  * @param root - the backend's session root directory.
  * @param cwd - the session's project directory.
  * @param id - the session id, encoded to one safe path segment.
+ * @param remoteHost - the session's remote host tag, if any.
  * @returns the session directory beneath its project directory.
  */
-export function sessionDir(root: string, cwd: string | undefined, id: SessionId): string {
-  return join(projectDir(root, cwd), encodeSegment(id))
+export function sessionDir(root: string, cwd: string | undefined, id: SessionId, remoteHost?: string): string {
+  return join(projectDir(root, cwd, remoteHost), encodeSegment(id))
 }
 
 /**
@@ -275,6 +302,7 @@ export function sessionDir(root: string, cwd: string | undefined, id: SessionId)
  * @param id - the session id, path-encoded via {@link encodeSegment} before filesystem use.
  * @param version - physical Session format generation.
  * @param compression - physical artifact encoding and filename suffix.
+ * @param remoteHost - the session's remote host tag, if any.
  * @returns the selected generation's configured JSONL artifact path.
  */
 export function generationLogPath(
@@ -283,8 +311,9 @@ export function generationLogPath(
   id: SessionId,
   version: number,
   compression: JsonlCompression,
+  remoteHost?: string,
 ): string {
-  return join(sessionDir(root, cwd, id), generationLogFilename(version, compression))
+  return join(sessionDir(root, cwd, id, remoteHost), generationLogFilename(version, compression))
 }
 
 /**
@@ -293,6 +322,7 @@ export function generationLogPath(
  * @param cwd - the session's project directory (`undefined` → `_no-cwd`).
  * @param id - the session id, path-encoded via {@link encodeSegment} before filesystem use.
  * @param compression - physical artifact encoding and filename suffix.
+ * @param remoteHost - the session's remote host tag, if any.
  * @returns the current Session format generation path.
  */
 export function logPath(
@@ -300,8 +330,9 @@ export function logPath(
   cwd: string | undefined,
   id: SessionId,
   compression: JsonlCompression,
+  remoteHost?: string,
 ): string {
-  return generationLogPath(root, cwd, id, SESSION_FORMAT_VERSION, compression)
+  return generationLogPath(root, cwd, id, SESSION_FORMAT_VERSION, compression, remoteHost)
 }
 
 /**

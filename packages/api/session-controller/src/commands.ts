@@ -282,6 +282,7 @@ export class SessionCommandController {
         inheritedEventCount: SessionLogOffset(boundary + 1),
         meta: {
           ...(source.header.cwd === undefined ? {} : { cwd: source.header.cwd }),
+          ...(source.header.remoteHost === undefined ? {} : { remoteHost: source.header.remoteHost }),
           isSeeded: true,
           ...(composition.agentPreset === undefined
             ? {}

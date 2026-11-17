@@ -133,6 +133,15 @@ export interface SessionHeader {
    * would replay history the model can no longer act on.
    */
   readonly agentPreset?: string
+  /**
+   * Host this session was created on when the harness itself ran over SSH
+   * (or an explicit host tag was configured via `DSH_SESSION_REMOTE_HOST`);
+   * absent for local runs. Storage keys remote sessions under a host-prefixed
+   * project directory, so a home shared across machines separates sessions per
+   * host the way Zed separates local and remote projects. Presentation and
+   * storage metadata only; it does not change execution.
+   */
+  readonly remoteHost?: string
 }
 
 /**
@@ -161,6 +170,7 @@ export interface CreateSessionOptions {
     readonly origin?: 'subagent'
     readonly delegationDepth?: number
     readonly agentPreset?: string
+    readonly remoteHost?: string
   }
 }
 

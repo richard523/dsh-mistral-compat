@@ -163,6 +163,8 @@ export interface SessionSummary {
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
+  /** Host the session was created on when launched over SSH; absent for local runs. */
+  readonly remoteHost?: string
   readonly projections?: SessionProjectionHints
 }
 

@@ -35,6 +35,8 @@ export interface SessionListEntry {
   /** Format classification supplied by the Host list. */
   formatStatus?: SessionSummary['formatStatus']
   cwd?: string
+  /** Remote host the session was created on (SSH-launched run); absent for local sessions. */
+  remoteHost?: string
   /**
    * The row's summary projection values, never the full projection set; see
    * `TitledSessionSummary.projectionValues`.

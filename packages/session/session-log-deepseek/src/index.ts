@@ -83,6 +83,7 @@ function wireHeader(session: Session): DeepSeekSessionLogWireHeader {
     ...header.origin === undefined ? {} : { origin: header.origin },
     ...header.delegationDepth === undefined ? {} : { delegationDepth: header.delegationDepth },
     ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+    ...header.remoteHost === undefined ? {} : { remoteHost: header.remoteHost },
   }
 }
 
