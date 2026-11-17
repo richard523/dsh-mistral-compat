@@ -1,6 +1,6 @@
 /** In-memory profile package routing for Node's default ESM and CommonJS loaders. */
 
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs'
 import { createRequire, isBuiltin } from 'node:module'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -733,10 +733,8 @@ class ResolutionRouter {
 function internalModules(): InternalModules {
   if (process.versions.bun !== undefined) {
     throw new Error(
-      'dsh profile boot under Bun is not yet supported: the profile resolver interception patches Node internal '
-      + 'loader modules via node-addon-require-builtin, which Bun does not expose (no V8 current-context symbols, '
-      + 'no synchronous registerHooks). Bun works for --version/--help and arg parsing. '
-      + 'Tracked as the bun loader-hooks port in native/system-rs/MIGRATION.md.',
+      'dsh: internalModules() requires Node internal loader access; under Bun the resolver interception '
+      + 'uses materialized node_modules symlinks instead (see installRuntimeInterception).',
     )
   }
   const require = createRequire(import.meta.url)
@@ -830,13 +828,50 @@ function throwWithoutCjsAnchor(error: unknown, anchor: string): never {
 }
 
 /**
+ * Bun cannot patch Node's internal loaders (no V8 current-context symbols, no synchronous
+ * registerHooks), so under Bun the resolution layer is materialized on disk instead:
+ * each entry and linked root becomes a symlink in the profile's own node_modules, and
+ * standard resolution does the routing. Mirrors what the interception achieves on Node.
+ */
+function materializeBunResolution(resolution: RuntimeResolution): void {
+  const root = resolution.profileDir ?? resolution.profilesDir
+  const nm = join(root, 'node_modules')
+  mkdirSync(nm, { recursive: true })
+  const link = (name: string, target: string) => {
+    const dest = join(nm, name)
+    if (existsSync(dest)) return
+    mkdirSync(dirname(dest), { recursive: true })
+    try { symlinkSync(target, dest, 'dir') } catch { /* concurrent creator wins */ }
+  }
+  for (const entry of resolution.entries) link(entry.name, entry.packageDir)
+  for (const linked of resolution.linkedRoots) link(linked.name, linked.realPath)
+}
+
+/**
  * Install one runtime resolution as the interception on Node's default ESM and CommonJS resolvers.
+ * Under Bun, materializes the resolution as node_modules symlinks and returns a stub interception.
  * @param resolution - complete package table and profile scope.
  * @returns an interception that publishes a successor or restores the native methods.
  */
 export function installRuntimeInterception(
   resolution: RuntimeResolution,
 ): RuntimeInterception {
+  if (process.versions.bun !== undefined) {
+    materializeBunResolution(resolution)
+    return {
+      packageDir(specifier, parentURL) {
+        try {
+          const bare = barePackageName(specifier) ?? specifier
+          const req = createRequire(parentURL ?? import.meta.url)
+          return dirname(req.resolve(`${bare}/package.json`))
+        } catch {
+          return undefined
+        }
+      },
+      replace(next) { materializeBunResolution(next) },
+      dispose() {},
+    }
+  }
   const { esm, esmDefaultResolve, esmConditions, cjs, cjsConditions, modern } = internalModules()
   const router = new ResolutionRouter(resolution, directory => cjs._nodeModulePaths(directory))
   let delegatedEsm: { parent: string | undefined; request: string } | undefined

@@ -1,6 +1,10 @@
 /** Select program syntax and own temporary or retained Node processes. */
-import { stripTypeScriptTypes } from 'node:module'
+import module from 'node:module'
 import { isAbsolute } from 'node:path'
+// Bun's node:module has no stripTypeScriptTypes; fall back to Bun's own transpiler.
+const stripTypeScriptTypes: (source: string) => string = typeof module.stripTypeScriptTypes === 'function'
+  ? (source) => module.stripTypeScriptTypes(source)
+  : (source) => new (globalThis as any).Bun.Transpiler({ loader: 'ts' }).transformSync(source)
 import type { Context } from '@deepseek-ai/cordis'
 import { PtcRuntimeError, type PtcProgramFormat, type PtcRunRequest, type PtcRunResult, type PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
