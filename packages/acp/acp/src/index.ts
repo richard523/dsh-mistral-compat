@@ -13,7 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { basename, isAbsolute, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -336,7 +336,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         sessions: page.map(({ sessionId, cwd, active }) => ({
           sessionId,
           cwd,
-          ...(active === undefined ? {} : { _meta: { active: true } }),
+          // general autocategorization: bucket by workspace/project name, so
+          // imported ACP chats group the same as native ones
+          _meta: { category: basename(cwd), ...(active === undefined ? {} : { active: true }) },
         })),
         ...next === undefined ? {} : { nextCursor: encodeSessionListCursor(next) },
       }
