@@ -303,18 +303,26 @@ export function apply(ctx: Context, config: AcpConfig): void {
       }
       const listed = await persistence.list({ signal })
       const filtered = await Promise.all(listed.map(async ({ header }) => {
+        // Active sessions stay listed (marked in _meta) so clients can see the
+        // current session from any history view; resume still rejects them as
+        // already active. Subagent sessions and cwd-less headers stay hidden.
+        const active = sessions.has(header.id)
+          || activating.has(header.id)
+          || ctx.sessions.get(header.id) !== undefined
         if (
-          sessions.has(header.id)
-            || activating.has(header.id)
-            || ctx.sessions.get(header.id) !== undefined
-            || header.origin === 'subagent'
-            || header.cwd === undefined
-            || !isAbsolute(header.cwd)
+          header.origin === 'subagent'
+          || header.cwd === undefined
+          || !isAbsolute(header.cwd)
         ) return undefined
         if (params.cwd !== undefined && params.cwd !== null && !await sameDirectory(header.cwd, params.cwd)) {
           return undefined
         }
-        return { sessionId: header.id, cwd: header.cwd, createdAt: header.createdAt }
+        return {
+          sessionId: header.id,
+          cwd: header.cwd,
+          createdAt: header.createdAt,
+          ...(active ? { active: true as const } : {}),
+        }
       }))
       const entries = filtered
         .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined)
@@ -325,7 +333,11 @@ export function apply(ctx: Context, config: AcpConfig): void {
       const page = remaining.slice(0, sessionListPageSize)
       const next = remaining.length > page.length ? page.at(-1) : undefined
       return {
-        sessions: page.map(({ sessionId, cwd }) => ({ sessionId, cwd })),
+        sessions: page.map(({ sessionId, cwd, active }) => ({
+          sessionId,
+          cwd,
+          ...(active === undefined ? {} : { _meta: { active: true } }),
+        })),
         ...next === undefined ? {} : { nextCursor: encodeSessionListCursor(next) },
       }
     },
