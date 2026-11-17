@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Installed CLI entry for disk launchers and embedded runtimes.
  * @module @deepseek-ai/dsh/installed-bin

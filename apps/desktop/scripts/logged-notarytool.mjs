@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** Adapt electron-notarize's combined submit/wait into separately timed Apple operations. */
 import { execFile } from 'node:child_process'
 import { basename, resolve } from 'node:path'

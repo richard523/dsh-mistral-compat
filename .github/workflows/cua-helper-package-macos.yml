@@ -58,18 +58,18 @@ jobs:
           clean: true
       - name: Validate run ref and preset
         run: |
-          node -e 'const fs=require("node:fs"); const ref=process.env.GITHUB_REF;
+          bun -e 'const fs=require("node:fs"); const ref=process.env.GITHUB_REF;
           if(!ref || (!ref.startsWith("refs/heads/") && !ref.startsWith("refs/tags/"))) throw Error("Select a trusted repository branch or release tag");
           const tag=ref.replace(/^refs\/tags\//, "");
           if(tag.startsWith("dsh-v") && tag!=="dsh-v"+JSON.parse(fs.readFileSync("package.json","utf8")).version) throw Error("Release tag must match product version");
           if(!["test","production"].includes(process.env.DSH_PACKAGING_PRESET)) throw Error("Invalid preset");'
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
           package-manager-cache: false
       - name: Record CUA helper build inputs
         id: build-inputs
-        run: node scripts/cua-helper/build-inputs.ts
+        run: bun scripts/cua-helper/build-inputs.ts
       - name: Find reusable CUA helper
         if: inputs.reuse
         id: retained
@@ -77,21 +77,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CUA_MACOS_RUN_ID: ${{ inputs.cua_macos_run_id }}
           CUA_BUILD_KEY: ${{ steps.build-inputs.outputs.build-key }}
-        run: node scripts/cua-helper/select-artifact.ts
+        run: bun scripts/cua-helper/select-artifact.ts
       - uses: pnpm/action-setup@v5.0.0
         if: steps.retained.outputs.artifact-id == ''
         with:
           dest: ${{ runner.temp }}/setup-pnpm-cua-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Install locked dependencies
         if: steps.retained.outputs.artifact-id == ''
-        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+        run: bun x pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
       - name: Build and verify notarized applications
         if: steps.retained.outputs.artifact-id == ''
         env:
           CUA_EXPECTED_BUILD_KEY: ${{ steps.build-inputs.outputs.build-key }}
         run: |
           mkdir -p dist
-          node --import tsx/esm scripts/cua-helper/package.ts --out dist/cua-helper
+          bun --import tsx/esm scripts/cua-helper/package.ts --out dist/cua-helper
       - uses: actions/upload-artifact@v7.0.1
         if: steps.retained.outputs.artifact-id == ''
         id: upload

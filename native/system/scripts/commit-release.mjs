@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Bump, stage, and commit a release in one command:
  * `pnpm release:commit <major|minor|patch|x.y.z>`. The namespaced tag stays

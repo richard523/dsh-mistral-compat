@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 /**
  * Test driver: boot the tool-pwsh Loader composition, execute one real

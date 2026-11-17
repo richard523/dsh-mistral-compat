@@ -24,7 +24,7 @@ permissions:
   actions: read
 
 env:
-  PRIMARY_NODE_VERSION: '24'
+  PRIMARY_BUN_VERSION: '1.4.2'
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
@@ -54,32 +54,32 @@ jobs:
         with:
           dest: ${{ runner.temp }}/setup-pnpm
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          bun-version: ${{ env.PRIMARY_BUN_VERSION }}
 
-      - name: Configure pnpm store path
+      - name: Configure bun x pnpm store path
         id: pnpm-store
         run: |
           store_root="$HOME/.local/share/pnpm/store"
           echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
-          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" bun x pnpm store path --silent)
           echo "path=$store_path" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache/restore@v6.1.0
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_BUN_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+            ${{ runner.os }}-node-${{ env.PRIMARY_BUN_VERSION }}-pnpm-
 
       - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
 
       - name: Verify release version
         env:
           RELEASE_PUBLISH: 'true'
-        run: pnpm run release:verify --family dsh ${{ inputs.skip-tag-check && '--skip-tag-check' || '' }}
+        run: bun x pnpm run release:verify --family dsh ${{ inputs.skip-tag-check && '--skip-tag-check' || '' }}
 
       - name: Download selected macOS CUA helper
         uses: actions/download-artifact@v8.0.1
@@ -90,7 +90,7 @@ jobs:
           path: dist/cua-helper
 
       - name: Build
-        run: pnpm run build:official --serial
+        run: bun x pnpm run build:official --serial
 
       - name: Stage verified macOS helper applications
         env:
@@ -98,7 +98,7 @@ jobs:
         run: |
           mkdir dist/cua-helper/extracted
           tar -xzf dist/cua-helper/cua-helper.tgz -C dist/cua-helper/extracted
-          pnpm exec tsx scripts/cua-helper/stage.ts --from dist/cua-helper/extracted
+          bun scripts/cua-helper/stage.ts --from dist/cua-helper/extracted
 
       - name: Record macOS CUA source and publication retry instructions
         env:
@@ -112,7 +112,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pack release tarballs
-        run: pnpm run release:pack --family dsh --out dist/npm
+        run: bun x pnpm run release:pack --family dsh --out dist/npm
 
       # The harness packages declare the vendored framework as a peer, and this
       # verification must not depend on the registry already carrying matching
@@ -120,18 +120,18 @@ jobs:
       # publishes — so it installs that family's pack output too. Only dist/npm
       # is published.
       - name: Pack the vendored framework for verification
-        run: pnpm run release:pack --family vendor --out dist/npm-vendor
+        run: bun x pnpm run release:pack --family vendor --out dist/npm-vendor
 
       # dsh-sandbox-local declares the Landlock entry as a runtime dependency, so
       # the verification needs its tarball. Its platform packages stay out: they
       # are optional, and building them needs a musl toolchain per architecture.
       - name: Pack the Landlock entry for verification
         run: |
-          pnpm --dir native/system run build:ts
-          pnpm --dir native/system/packages/entry pack --pack-destination "$PWD/dist/npm-landlock"
+          bun x pnpm --dir native/system run build:ts
+          bun x pnpm --dir native/system/packages/entry pack --pack-destination "$PWD/dist/npm-landlock"
 
       - name: Verify packed install
-        run: pnpm run release:verify-packed-install --family dsh --from dist/npm --from dist/npm-vendor --from dist/npm-landlock
+        run: bun x pnpm run release:verify-packed-install --family dsh --from dist/npm --from dist/npm-vendor --from dist/npm-landlock
 
       - uses: actions/upload-artifact@v7.0.1
         with:
@@ -163,13 +163,13 @@ jobs:
         with:
           dest: ${{ runner.temp }}/setup-pnpm
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          bun-version: ${{ env.PRIMARY_BUN_VERSION }}
           registry-url: https://registry.npmjs.org
 
       - name: Install (immutable, no package scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        run: bun x pnpm install --frozen-lockfile --ignore-scripts
 
       - uses: actions/download-artifact@v8.0.1
         with:
@@ -179,4 +179,4 @@ jobs:
       - name: Publish tarballs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm run release:publish --family dsh --from dist/npm
+        run: bun x pnpm run release:publish --family dsh --from dist/npm

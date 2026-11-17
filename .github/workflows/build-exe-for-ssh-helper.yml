@@ -40,7 +40,7 @@ jobs:
         env:
           REQUESTED_TARGETS: ${{ inputs.targets }}
         run: |
-          node --input-type=module <<'JS'
+          bun --input-type=module <<'JS'
           import { appendFileSync } from 'node:fs';
           const runners = {
             'node24-linux-x64': 'ubuntu-24.04',
@@ -70,9 +70,9 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
           cache: pnpm
       - uses: actions/cache@v4
         with:
@@ -80,7 +80,7 @@ jobs:
           key: ssh-pkg-${{ matrix.target }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: ssh-pkg-${{ matrix.target }}-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
       - name: Prepare Linux compiler and sandbox
         if: runner.os == 'Linux'
         run: |
@@ -96,21 +96,21 @@ jobs:
       - name: Build native release archive
         env:
           HELPER_TARGET: ${{ matrix.target }}
-        run: pnpm exec tsx scripts/build-exe-for-ssh-helper.ts --target="$HELPER_TARGET"
+        run: bun scripts/build-exe-for-ssh-helper.ts --target="$HELPER_TARGET"
       - name: Verify relocated executable and confinement
         env:
           HELPER_TARGET: ${{ matrix.target }}
         run: |
           archives=(dist-exe/ssh-helper/*.tar.gz)
           test "${#archives[@]}" -eq 1
-          pnpm exec tsx scripts/verify-ssh-helper-artifact.ts --archive="${archives[0]}" --sandbox=required --report="dist-exe/ssh-helper/$HELPER_TARGET.json"
+          bun scripts/verify-ssh-helper-artifact.ts --archive="${archives[0]}" --sandbox=required --report="dist-exe/ssh-helper/$HELPER_TARGET.json"
       - name: Verify the packaged Landlock backend
         if: runner.os == 'Linux'
         env:
           HELPER_TARGET: ${{ matrix.target }}
         run: |
           archives=(dist-exe/ssh-helper/*.tar.gz)
-          pnpm exec tsx scripts/verify-ssh-helper-artifact.ts --archive="${archives[0]}" --sandbox=required --backend=landlock-run --report="dist-exe/ssh-helper/$HELPER_TARGET.landlock.json"
+          bun scripts/verify-ssh-helper-artifact.ts --archive="${archives[0]}" --sandbox=required --backend=landlock-run --report="dist-exe/ssh-helper/$HELPER_TARGET.landlock.json"
       - name: Verify OpenSSH on glibc 2.28 without Node
         if: runner.os == 'Linux'
         env:
@@ -118,7 +118,7 @@ jobs:
         run: |
           archives=(dist-exe/ssh-helper/*.tar.gz)
           test "${#archives[@]}" -eq 1
-          pnpm exec tsx scripts/verify-ssh-helper-ssh.ts --archive="${archives[0]}" --report="dist-exe/ssh-helper/$HELPER_TARGET.ssh.json"
+          bun scripts/verify-ssh-helper-ssh.ts --archive="${archives[0]}" --report="dist-exe/ssh-helper/$HELPER_TARGET.ssh.json"
       - name: Upload verified archive and evidence
         uses: actions/upload-artifact@v7
         with:

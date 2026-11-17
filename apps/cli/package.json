@@ -23,8 +23,8 @@
     "src"
   ],
   "scripts": {
-    "prepack": "tsx ../../scripts/stage-dsh-docs.ts",
-    "postpack": "tsx ../../scripts/stage-dsh-docs.ts --clean"
+    "prepack": "bun ../../scripts/stage-dsh-docs.ts",
+    "postpack": "bun ../../scripts/stage-dsh-docs.ts --clean"
   },
   "license": "MIT",
   "dependencies": {
@@ -187,6 +187,6 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=24.9.0"
+    "bun": ">=1.4.2"
   }
 }

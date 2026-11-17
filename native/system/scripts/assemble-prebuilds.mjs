@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Assemble downloaded release artifacts into the platform packages and
  * verify the result. The Release workflow's build legs upload one

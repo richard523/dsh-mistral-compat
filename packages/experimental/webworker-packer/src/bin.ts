@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Pack a Preview deployment from this repository: materialize and lower the
  * base image for one shipped profile, write its lazy chunk archives beside it,

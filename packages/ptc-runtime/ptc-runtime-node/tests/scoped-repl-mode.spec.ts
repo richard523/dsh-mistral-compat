@@ -133,7 +133,7 @@ it('passes a host binding named module through to the program', async () => {
 
 it('rejects a hashbang line before running the program', async () => {
   const { run } = await scopedReplRuntime()
-  expect((await run('#!/usr/bin/env node\n1')).error?.message).toContain('Hashbang lines are not supported')
+  expect((await run('#!/usr/bin/env bun\n1')).error?.message).toContain('Hashbang lines are not supported')
 })
 
 it('does not charge an earlier call\'s asynchronous failure to a later call', async () => {

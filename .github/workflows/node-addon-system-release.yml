@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
 
       - id: matrix
-        run: echo "prebuilds=$(node ./scripts/github-matrix.mjs release-prebuild)" >> "$GITHUB_OUTPUT"
+        run: echo "prebuilds=$(bun ./scripts/github-matrix.mjs release-prebuild)" >> "$GITHUB_OUTPUT"
 
   build-prebuilds:
     name: ${{ matrix.package }}
@@ -51,14 +51,14 @@ jobs:
         with:
           package_json_file: package.json
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --filter @deepseek-ai/node-addon-system-workspace... --frozen-lockfile
+        run: bun x pnpm install --filter @deepseek-ai/node-addon-system-workspace... --frozen-lockfile
 
       - name: Install musl toolchain
         if: runner.os == 'Linux'
@@ -67,17 +67,17 @@ jobs:
           sudo apt-get install -yq musl-tools
 
       - name: Build native binaries
-        run: pnpm build:native
+        run: bun x pnpm build:native
 
       - name: Verify binary metadata
-        run: node ./scripts/verify-launcher-binary.mjs ${{ matrix.dir }}
+        run: bun ./scripts/verify-launcher-binary.mjs ${{ matrix.dir }}
 
       - name: Verify the built entry and flock
         run: |
-          pnpm build:ts
-          pnpm build:test-oracle
-          pnpm test:flock
-          pnpm test:packaging
+          bun x pnpm build:ts
+          bun x pnpm build:test-oracle
+          bun x pnpm test:flock
+          bun x pnpm test:packaging
 
       - name: Upload prebuild artifact
         uses: actions/upload-artifact@v7.0.1
@@ -98,20 +98,20 @@ jobs:
         with:
           package_json_file: package.json
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --filter @deepseek-ai/node-addon-system-workspace... --frozen-lockfile
+        run: bun x pnpm install --filter @deepseek-ai/node-addon-system-workspace... --frozen-lockfile
 
       - name: Build TypeScript
-        run: pnpm build:ts
+        run: bun x pnpm build:ts
 
       - name: Verify release version
-        run: node ./scripts/verify-release.mjs
+        run: bun ./scripts/verify-release.mjs
         env:
           RELEASE_PUBLISH: ${{ inputs.publish }}
 
@@ -122,18 +122,18 @@ jobs:
           path: native/system/.release/prebuild-artifacts
 
       - name: Assemble and verify prebuilds
-        run: node ./scripts/assemble-prebuilds.mjs .release/prebuild-artifacts
+        run: bun ./scripts/assemble-prebuilds.mjs .release/prebuild-artifacts
 
       - name: Verify release payload
-        run: node ./scripts/verify-release.mjs --prebuilds
+        run: bun ./scripts/verify-release.mjs --prebuilds
         env:
           RELEASE_PUBLISH: ${{ inputs.publish }}
 
       - name: Pack release tarballs
-        run: node ./scripts/pack-release.mjs dist/npm
+        run: bun ./scripts/pack-release.mjs dist/npm
 
       - name: Verify packed install
-        run: node ./scripts/verify-packed-install.mjs dist/npm
+        run: bun ./scripts/verify-packed-install.mjs dist/npm
         env:
           NALR_REQUIRE_LANDLOCK: 1
 
@@ -161,9 +161,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
           registry-url: https://registry.npmjs.org
 
       - name: Download npm tarballs
@@ -185,4 +185,4 @@ jobs:
         # this job over the same artifact skips what already landed instead of
         # failing on it. A bare `npm publish` loop could not be retried: the
         # registry answers a repeat of an existing version permanently.
-        run: node ./scripts/publish-release.mjs dist/npm
+        run: bun ./scripts/publish-release.mjs dist/npm

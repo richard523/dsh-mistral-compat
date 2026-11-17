@@ -43,7 +43,7 @@
     "src"
   ],
   "scripts": {
-    "postinstall": "node scripts/ensure-spawn-helper.mjs"
+    "postinstall": "bun scripts/ensure-spawn-helper.mjs"
   },
   "license": "MIT",
   "peerDependencies": {

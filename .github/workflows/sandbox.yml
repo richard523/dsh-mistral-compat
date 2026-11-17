@@ -3,7 +3,7 @@
 # master-only reference stays outside the pull-request verdict; rationale lives in
 # .agents/notes/implemented/process/2026-07-21-serial-cross-platform-ci-reference.md.
 # A separate workflow from ci.yml because the axis is different — the e2e jobs
-# fan out over OS×runner (kernel capabilities), not node versions. The Landlock
+# fan out over OS×runner (kernel capabilities), not bun versions. The Landlock
 # launcher is built from native/system on each Landlock leg and installed
 # from the same tarballs the main-repository release workflow publishes.
 name: Sandbox
@@ -33,7 +33,7 @@ jobs:
   # locally built launcher), Seatbelt on macOS (sandbox-exec ships with
   # the OS). One node
   # version only: kernel confinement does not vary by node, and ci.yml's
-  # node matrix already covers the node axis.
+  # bun matrix already covers the bun axis.
   #
   # The e2e files self-skip where their runner is absent, so a leg that lost
   # its runner (no bwrap, kernel without Landlock, macOS without
@@ -70,12 +70,12 @@ jobs:
 
       - uses: pnpm/action-setup@v5.0.0
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
 
       - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
 
       # The bwrap rung needs bubblewrap on PATH and unprivileged user
       # namespaces. Ubuntu 24.04 gates the latter behind an AppArmor knob;
@@ -94,8 +94,8 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq musl-tools
-          pnpm --dir native/system run build:ts
-          pnpm --dir native/system run build:native
+          bun x pnpm --dir native/system run build:ts
+          bun x pnpm --dir native/system run build:native
 
       - name: Sandbox e2e (real kernel confinement, world-verified)
         # NO_COLOR: vitest force-enables ANSI color under GITHUB_ACTIONS even
@@ -105,7 +105,7 @@ jobs:
           NO_COLOR: 1
         run: |
           set -u +e -o pipefail
-          out=$(pnpm exec vitest run --config vitest.e2e.config.ts \
+          out=$(bun x pnpm exec vitest run --config vitest.e2e.config.ts \
             packages/sandbox/sandbox-local/tests/${{ matrix.runner }}.e2e.ts \
             packages/shell/bash-sandbox/tests/${{ matrix.runner }}.e2e.ts 2>&1); status=$?
           echo "$out"
@@ -119,7 +119,7 @@ jobs:
       # together so registry state cannot mask source/package drift.
       - name: Build packages for the pack rehearsal
         if: matrix.runner == 'landlock'
-        run: pnpm run build:official
+        run: bun x pnpm run build:official
 
       - name: Packed-distribution e2e (pack → install → confine)
         if: matrix.runner == 'landlock'
@@ -127,7 +127,7 @@ jobs:
           NO_COLOR: 1
         run: |
           set -u +e -o pipefail
-          out=$(pnpm exec vitest run --config vitest.e2e.config.ts \
+          out=$(bun x pnpm exec vitest run --config vitest.e2e.config.ts \
             packages/sandbox/sandbox-local/tests/packed-install.e2e.ts 2>&1); status=$?
           echo "$out"
           [ "$status" -eq 0 ]
@@ -150,19 +150,19 @@ jobs:
 
       - uses: pnpm/action-setup@v5.0.0
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
 
       - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
 
       # The same key and value the coverage and serial lanes grant: on the
       # shared 3-vCPU runner, cases that inherit Vitest's 5000 ms default timed
       # out in spawn.spec.ts and changes.spec.ts (run 36370945526) while
       # passing in under a second on a quiet host. The ci-unit aggregate is
-      # `pnpm run test` through the path that consumes the variable.
+      # `bun x pnpm run test` through the path that consumes the variable.
       - name: Unit tests (darwin parity)
         env:
           DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
-        run: pnpm run check:ci:unit
+        run: bun x pnpm run check:ci:unit

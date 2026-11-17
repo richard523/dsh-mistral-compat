@@ -32,7 +32,7 @@ jobs:
         env:
           PUBLISH: ${{ inputs.publish }}
         run: |
-          node --input-type=module <<'JS'
+          bun --input-type=module <<'JS'
           import { readFileSync, appendFileSync } from 'node:fs';
           import { execFileSync } from 'node:child_process';
           const {version} = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -55,11 +55,11 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: bun x pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
           pattern: ssh-helper-node24-*
@@ -69,7 +69,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
           SOURCE_COMMIT: ${{ needs.validate.outputs.commit }}
-        run: pnpm exec tsx scripts/ssh-helper/release.ts --directory=dist-exe/ssh-helper --version="$RELEASE_VERSION" --commit="$SOURCE_COMMIT"
+        run: bun scripts/ssh-helper/release.ts --directory=dist-exe/ssh-helper --version="$RELEASE_VERSION" --commit="$SOURCE_COMMIT"
       - name: Upload verified release checksums
         uses: actions/upload-artifact@v7
         with:

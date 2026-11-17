@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  PRIMARY_NODE_VERSION: '24'
+  PRIMARY_BUN_VERSION: '1.4.2'
   # Projected source links target the public repository, whose history can
   # differ from this workflow's source repository. This stays on master rather
   # than following the dispatched tag: that repository advances only to each
@@ -48,13 +48,13 @@ jobs:
 
       - uses: pnpm/action-setup@v5.0.0
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          bun-version: ${{ env.PRIMARY_BUN_VERSION }}
           cache: pnpm
 
       - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
 
       # One definition of "released" for the site and the npm sequence: this
       # rejects every ref that is not a dsh-v* tag naming the version this tree
@@ -62,7 +62,7 @@ jobs:
       - name: Verify release version
         env:
           RELEASE_PUBLISH: 'true'
-        run: pnpm run release:verify --family dsh
+        run: bun x pnpm run release:verify --family dsh
 
       - name: Configure Pages
         id: pages
@@ -71,7 +71,7 @@ jobs:
       - name: Verify and build documentation
         env:
           DOCS_BASE: ${{ steps.pages.outputs.base_path }}/
-        run: pnpm run doc-sync
+        run: bun x pnpm run doc-sync
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

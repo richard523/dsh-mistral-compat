@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** Test driver that sends two turns through one Headless Loader composition. */
 
 import { resolveConfigPath } from '@deepseek-ai/dsh-app-boot'

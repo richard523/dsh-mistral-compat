@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Command-line entry for dsh.
  * @module @deepseek-ai/dsh/bin

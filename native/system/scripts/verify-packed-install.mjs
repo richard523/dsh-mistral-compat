@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Publish-path rehearsal without publishing: verify the packed tarballs are
  * exactly what a consumer install needs. `pnpm pack` already produced the

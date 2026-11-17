@@ -731,6 +731,14 @@ class ResolutionRouter {
 }
 
 function internalModules(): InternalModules {
+  if (process.versions.bun !== undefined) {
+    throw new Error(
+      'dsh profile boot under Bun is not yet supported: the profile resolver interception patches Node internal '
+      + 'loader modules via node-addon-require-builtin, which Bun does not expose (no V8 current-context symbols, '
+      + 'no synchronous registerHooks). Bun works for --version/--help and arg parsing. '
+      + 'Tracked as the bun loader-hooks port in native/system-rs/MIGRATION.md.',
+    )
+  }
   const require = createRequire(import.meta.url)
   const addon = require('node-addon-require-builtin') as { requireBuiltin(moduleId: string): unknown }
   const esmModule = addon.requireBuiltin('internal/modules/esm/loader') as {

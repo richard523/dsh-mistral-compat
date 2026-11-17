@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** Deterministic shared native substitute; this fixture never reads or controls the desktop. */
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs'

@@ -19,10 +19,10 @@
     "prebuilds.json"
   ],
   "scripts": {
-    "prepack": "node ../../scripts/verify-launcher-binary.mjs"
+    "prepack": "bun ../../scripts/verify-launcher-binary.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4.2"
   },
   "license": "BSD-3-Clause",
   "publishConfig": {

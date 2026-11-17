@@ -28,9 +28,9 @@ jobs:
           sparse-checkout: README.md
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
           package-manager-cache: false
 
       - id: check
@@ -94,10 +94,10 @@ jobs:
       - uses: pnpm/action-setup@v5.0.0
         if: steps.merge.outputs.merged == 'true'
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         if: steps.merge.outputs.merged == 'true'
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
           package-manager-cache: false
 
       - name: Run the tree's pre-merge check
@@ -115,7 +115,7 @@ jobs:
             echo "::warning title=Pre-Merge Check::this tree has no scripts/pre-merge-check.ts, so nothing was installed, compiled, or checked"
             exit 0
           fi
-          if node scripts/pre-merge-check.ts; then
+          if bun scripts/pre-merge-check.ts; then
             exit 0
           fi
           # A check that crashes reports nothing, so the step reports its exit the way the mode asks.

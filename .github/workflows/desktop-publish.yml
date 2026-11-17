@@ -37,7 +37,7 @@ jobs:
       runner: ${{ steps.route.outputs.runner }}
     steps:
       - name: Require master for publication
-        run: node -e "if (process.env.GITHUB_REF !== 'refs/heads/master') throw new Error('Desktop publication must be dispatched from master')"
+        run: bun -e "if (process.env.GITHUB_REF !== 'refs/heads/master') throw new Error('Desktop publication must be dispatched from master')"
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
@@ -45,19 +45,19 @@ jobs:
         id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node apps/desktop-publisher/src/preflight-desktop-publish.mjs
+        run: bun apps/desktop-publisher/src/preflight-desktop-publish.mjs
       - uses: pnpm/action-setup@v5.0.0
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
-      - run: pnpm install --frozen-lockfile
+          bun-version: '1.4.2'
+      - run: bun x pnpm install --frozen-lockfile
       - name: Resolve original package and machine
         id: route
         env:
           GH_TOKEN: ${{ github.token }}
           DESKTOP_PUBLISH_RUNNERS: ${{ vars.DESKTOP_PUBLISH_RUNNERS }}
           DESKTOP_PACKAGE_ATTEMPT: ${{ steps.preflight.outputs.attempt }}
-        run: node --import tsx apps/desktop-publisher/src/resolve-desktop-publish-ci.ts
+        run: bun apps/desktop-publisher/src/resolve-desktop-publish-ci.ts
 
   prepare:
     needs: route
@@ -85,26 +85,26 @@ jobs:
         with:
           package_json_file: desktop-publisher/package.json
           dest: ${{ runner.temp }}/publish-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
       - name: Check local publication configuration before dependency installation
         working-directory: desktop-publisher
-        run: node apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
-      - run: pnpm install --frozen-lockfile
+        run: bun apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
+      - run: bun x pnpm install --frozen-lockfile
         working-directory: desktop-publisher
       - name: Resolve retained package and approval environment
         id: local
         working-directory: desktop-publisher
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node --import tsx apps/desktop-publisher/src/resolve-retained-desktop-publish-ci.ts
+        run: bun apps/desktop-publisher/src/resolve-retained-desktop-publish-ci.ts
       - name: Verify local package without upload credentials
         id: check
         working-directory: desktop-publisher
         env:
           DESKTOP_PUBLISH_ROUTE: ${{ steps.local.outputs.route }}
-        run: node --import tsx apps/desktop/scripts/publish-desktop-ci.ts --check
+        run: bun apps/desktop/scripts/publish-desktop-ci.ts --check
 
   publish:
     name: Approve ${{ needs.prepare.outputs.label }}
@@ -130,25 +130,25 @@ jobs:
         with:
           package_json_file: desktop-publisher/package.json
           dest: ${{ runner.temp }}/publish-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
       - name: Check local publication configuration before dependency installation
         working-directory: desktop-publisher
-        run: node apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
-      - run: pnpm install --frozen-lockfile
+        run: bun apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
+      - run: bun x pnpm install --frozen-lockfile
         working-directory: desktop-publisher
       - name: Verify local package without upload credentials
         id: check
         working-directory: desktop-publisher
-        run: node --import tsx apps/desktop/scripts/publish-desktop-ci.ts --check
+        run: bun apps/desktop/scripts/publish-desktop-ci.ts --check
       - name: Read machine GitHub App key
         if: needs.prepare.outputs.preset == 'production'
         id: key
         env:
           APP_KEY_FILE: ${{ steps.check.outputs.app-key-file }}
         working-directory: desktop-publisher
-        run: node apps/desktop/scripts/read-desktop-app-key.mjs
+        run: bun apps/desktop/scripts/read-desktop-app-key.mjs
       - name: Create short-lived tag token
         if: needs.prepare.outputs.preset == 'production'
         id: app
@@ -164,7 +164,7 @@ jobs:
         working-directory: desktop-publisher
         env:
           DESKTOP_TAG_TOKEN: ${{ steps.app.outputs.token }}
-        run: node --import tsx apps/desktop/scripts/publish-desktop-ci.ts --publish
+        run: bun apps/desktop/scripts/publish-desktop-ci.ts --publish
       - name: Retain publication audit
         continue-on-error: true
         if: always() && steps.publish.outputs.record != ''
@@ -197,18 +197,18 @@ jobs:
         with:
           package_json_file: website-publisher/package.json
           dest: ${{ runner.temp }}/website-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
       - name: Check local publication configuration
         working-directory: website-publisher
-        run: node apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
-      - run: pnpm install --frozen-lockfile
+        run: bun apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
+      - run: bun x pnpm install --frozen-lockfile
         working-directory: website-publisher
       - name: Upload website installer
         id: website
         working-directory: website-publisher
-        run: node --import tsx apps/desktop-publisher/src/publish-website-ci.ts upload
+        run: bun apps/desktop-publisher/src/publish-website-ci.ts upload
       - name: Archive website publication diagnostics
         if: always() && steps.website.outputs.record != ''
         continue-on-error: true
@@ -241,18 +241,18 @@ jobs:
         with:
           package_json_file: website-publisher/package.json
           dest: ${{ runner.temp }}/website-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
       - name: Check local publication configuration
         working-directory: website-publisher
-        run: node apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
-      - run: pnpm install --frozen-lockfile
+        run: bun apps/desktop-publisher/src/preflight-desktop-publish-local.mjs
+      - run: bun x pnpm install --frozen-lockfile
         working-directory: website-publisher
       - name: Recover and observe website cache purge
         id: website
         working-directory: website-publisher
-        run: node --import tsx apps/desktop-publisher/src/publish-website-ci.ts purge
+        run: bun apps/desktop-publisher/src/publish-website-ci.ts purge
       - name: Archive website publication diagnostics
         if: always() && steps.website.outputs.record != ''
         continue-on-error: true

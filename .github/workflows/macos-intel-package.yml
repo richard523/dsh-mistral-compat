@@ -90,7 +90,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
       - name: Validate selected source and adapter support
         run: >-
-          node -e "const fs=require('node:fs'); const ref=process.env.PACKAGE_SOURCE_REF;
+          bun -e "const fs=require('node:fs'); const ref=process.env.PACKAGE_SOURCE_REF;
           const cp=require('node:child_process'); const preset=process.env.DSH_PACKAGING_PRESET;
           if(!['test','production'].includes(preset)) throw Error('Unknown packaging preset');
           const tag=/^dsh-v[0-9][0-9A-Za-z.-]*$/.test(ref);
@@ -111,9 +111,9 @@ jobs:
       - uses: pnpm/action-setup@v5.0.0
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
       - name: Configure persistent package caches
         env:
           DSH_DESKTOP_PACKAGE_CACHE_DIR: ${{ runner.tool_cache }}/dsh-desktop-package-cache
@@ -123,28 +123,28 @@ jobs:
       - name: Check Rosetta execution
         run: arch -x86_64 /usr/bin/true
       - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
       - name: Check original machine archival route
         env:
           DESKTOP_PUBLISH_RUNNERS: ${{ vars.DESKTOP_PUBLISH_RUNNERS }}
-        run: node --import tsx apps/desktop/scripts/retain-desktop-ci.ts --check-runner
+        run: bun apps/desktop/scripts/retain-desktop-ci.ts --check-runner
       - name: Validate preset and resolve build version
         id: settings
         env:
           PACKAGE_BUILD_VERSION: ${{ inputs.build_version }}
-        run: node apps/desktop/scripts/prepare-macos-ci.mjs
+        run: bun apps/desktop/scripts/prepare-macos-ci.mjs
       - name: Check packaging configuration and toolchain
         env:
           PACKAGE_VERSION: ${{ steps.settings.outputs.version }}
         run: |
           args=()
           if [[ "$PACKAGE_SKIP_NOTARIZATION" = true ]]; then args+=(--skip-notarization); fi
-          pnpm run package:desktop:mac:x64 --check --build-version "$PACKAGE_VERSION" "${args[@]}"
+          bun x pnpm run package:desktop:mac:x64 --check --build-version "$PACKAGE_VERSION" "${args[@]}"
       - name: Build and stage notarized Computer Use helpers
         # A source whose dsh ships the Computer Use bundle packs the workspace provider into the Desktop runtime,
         # which therefore needs the same notarized helper npm publication stages.
         run: |
-          if ! node -e "process.exit(require('./apps/cli/package.json').dependencies?.['@deepseek-ai/dsh-cua-bundle'] ? 0 : 1)"; then
+          if ! bun -e "process.exit(require('./apps/cli/package.json').dependencies?.['@deepseek-ai/dsh-cua-bundle'] ? 0 : 1)"; then
             echo 'This source does not ship Computer Use in Desktop; no helper is staged.'
             exit 0
           fi
@@ -153,24 +153,24 @@ jobs:
             exit 0
           fi
           mkdir -p dist
-          pnpm exec tsx scripts/cua-helper/package.ts --out dist/cua-helper
+          bun scripts/cua-helper/package.ts --out dist/cua-helper
           mkdir dist/cua-helper/extracted
           tar -xzf dist/cua-helper/cua-helper.tgz -C dist/cua-helper/extracted
-          pnpm exec tsx scripts/cua-helper/stage.ts --from dist/cua-helper/extracted
+          bun scripts/cua-helper/stage.ts --from dist/cua-helper/extracted
       - name: Build signed installers
         env:
           PACKAGE_VERSION: ${{ steps.settings.outputs.version }}
         run: |
           args=()
           if [[ "$PACKAGE_SKIP_NOTARIZATION" = true ]]; then args+=(--skip-notarization); fi
-          pnpm run package:desktop:mac:x64 --build-version "$PACKAGE_VERSION" "${args[@]}"
+          bun x pnpm run package:desktop:mac:x64 --build-version "$PACKAGE_VERSION" "${args[@]}"
       - name: Retain complete package outside the checkout
         id: retained
         env:
           DESKTOP_PUBLISH_RUNNERS: ${{ vars.DESKTOP_PUBLISH_RUNNERS }}
           PACKAGE_SOURCE_SHA: ${{ steps.checkout.outputs.commit }}
           PACKAGE_VERSION: ${{ steps.settings.outputs.version }}
-        run: node --import tsx apps/desktop/scripts/retain-desktop-ci.ts
+        run: bun apps/desktop/scripts/retain-desktop-ci.ts
       - name: Retain packaging diagnostics
         continue-on-error: true
         if: always() && steps.checkout.outcome == 'success'
@@ -200,21 +200,21 @@ jobs:
         with:
           package_json_file: artifact-archiver/package.json
           dest: ${{ runner.temp }}/archive-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
       - name: Configure persistent package caches
         env:
           DSH_DESKTOP_PACKAGE_CACHE_DIR: ${{ runner.tool_cache }}/dsh-desktop-package-cache
         run: |
           echo "DSH_DESKTOP_PACKAGE_CACHE_DIR=$DSH_DESKTOP_PACKAGE_CACHE_DIR" >> "$GITHUB_ENV"
           echo "PNPM_CONFIG_STORE_DIR=$DSH_DESKTOP_PACKAGE_CACHE_DIR/workspace-pnpm-store" >> "$GITHUB_ENV"
-      - run: pnpm install --frozen-lockfile
+      - run: bun x pnpm install --frozen-lockfile
         working-directory: artifact-archiver
       - name: Archive verified retained build
         id: archive
         working-directory: artifact-archiver
-        run: node --import tsx apps/desktop/scripts/archive-desktop-ci.ts --split-macos
+        run: bun apps/desktop/scripts/archive-desktop-ci.ts --split-macos
       - name: Retain DMG installer
         if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1

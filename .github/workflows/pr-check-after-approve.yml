@@ -34,9 +34,9 @@ jobs:
           sparse-checkout: README.md
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '24'
+          bun-version: '1.4.2'
           package-manager-cache: false
 
       # The check app's token makes the review check run its own row instead of joining this workflow's suite.

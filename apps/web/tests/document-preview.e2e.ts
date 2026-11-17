@@ -534,7 +534,7 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
       await writeFile(openLog, '')
       await writeFile(launchLog, '')
       const command = process.platform === 'darwin' ? 'open' : 'xdg-open'
-      await writeFile(join(nativeRoot, command), `#!/usr/bin/env node
+      await writeFile(join(nativeRoot, command), `#!/usr/bin/env bun
 const fs = require('node:fs');
 const path = process.argv[2] === '-a' ? process.argv[4] : process.argv[2] === '-R' ? process.argv[3] : process.argv[2];
 const action = process.argv[2] === '-a' ? 'application' : process.argv[2] === '-R' || fs.statSync(path).isDirectory() ? 'reveal' : 'open';
@@ -546,7 +546,7 @@ if (process.argv[2] === '-a') fs.appendFileSync(${JSON.stringify(launchLog)}, JS
           { id: '/Applications/Test Player.app', name: 'Test Player', default: true, icon: `data:image/png;base64,${TINY_PNG.toString('base64')}` },
           { id: '/Applications/Other Player.app', name: 'Other Player', default: false, icon: null },
         ]))
-        await writeFile(join(nativeRoot, 'osascript'), `#!/usr/bin/env node\nprocess.stdout.write(require('node:fs').readFileSync(${JSON.stringify(appsCatalog)}, 'utf8'));\n`, { mode: 0o700 })
+        await writeFile(join(nativeRoot, 'osascript'), `#!/usr/bin/env bun\nprocess.stdout.write(require('node:fs').readFileSync(${JSON.stringify(appsCatalog)}, 'utf8'));\n`, { mode: 0o700 })
         launchTarget = '/Applications/Test Player.app'
       }
       if (process.platform === 'linux') {
@@ -560,7 +560,7 @@ if (process.argv[2] === '-a') fs.appendFileSync(${JSON.stringify(launchLog)}, JS
         // `gio mime` owns the OS default here, so the marker file is what flips a run to "no default".
         linuxMimeDefault = join(nativeRoot, 'mime-default')
         await writeFile(linuxMimeDefault, 'test.desktop\n')
-        await writeFile(join(nativeRoot, 'gio'), `#!/usr/bin/env node
+        await writeFile(join(nativeRoot, 'gio'), `#!/usr/bin/env bun
 const fs = require('node:fs');
 const preferred = fs.readFileSync(${JSON.stringify(linuxMimeDefault)}, 'utf8').trim();
 if (process.argv[2] === 'info') process.stdout.write('standard::content-type: video/mp4');

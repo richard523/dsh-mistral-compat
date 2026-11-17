@@ -65,7 +65,7 @@ const run = promisify(execFile)
  * review requests, and branch updates. Each mutation is appended to
  * `mutations.jsonl`, each REST rerun to `reruns.jsonl`, and every invocation to `calls.jsonl`.
  */
-const GH = `#!/usr/bin/env node
+const GH = `#!/usr/bin/env bun
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

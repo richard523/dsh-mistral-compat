@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { appendFileSync, readFileSync } from 'node:fs'
 import process from 'node:process'

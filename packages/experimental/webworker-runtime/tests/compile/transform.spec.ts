@@ -704,7 +704,7 @@ refuses('unparseable source is refused', 'export const = \n', 'parse failed')
   // Shebang handling: `#!` is only legal at offset 0, which the prologue
   // occupies. It is commented out in place so both offsets and the line count
   // stay put.
-  const source = '#!/usr/bin/env node\nexport const main = 1\n'
+  const source = '#!/usr/bin/env bun\nexport const main = 1\n'
   const code = transformModule(source, 'probe.js')
   lacks('shebang is not left in the emitted body', code, '#!')
   parsesAsScript('shebang', code)

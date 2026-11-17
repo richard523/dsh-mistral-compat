@@ -58,7 +58,7 @@ jobs:
           DECISION_TOKEN: ${{ steps.decision-token.outputs.token }}
           DECISION_APP_SLUG: ${{ vars.DSH_APPROVAL_APP_SLUG }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node .github/review-ownership/check-approval.mjs pending
+        run: bun .github/review-ownership/check-approval.mjs pending
       # SECURITY: dependency setup runs in the status-writing job.
       - if: steps.revoke.outputs.active == 'true'
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -76,7 +76,7 @@ jobs:
           DECISION_TOKEN: ${{ steps.decision-token.outputs.token }}
           DECISION_APP_SLUG: ${{ vars.DSH_APPROVAL_APP_SLUG }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node .github/review-ownership/check-approval.mjs
+        run: bun .github/review-ownership/check-approval.mjs
       - name: Publish approval setup failure
         if: failure() && steps.revoke.outputs.active == 'true'
         env:
@@ -84,4 +84,4 @@ jobs:
           DECISION_TOKEN: ${{ steps.decision-token.outputs.token }}
           DECISION_APP_SLUG: ${{ vars.DSH_APPROVAL_APP_SLUG }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node .github/review-ownership/check-approval.mjs error
+        run: bun .github/review-ownership/check-approval.mjs error

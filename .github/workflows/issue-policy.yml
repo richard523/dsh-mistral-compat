@@ -28,9 +28,9 @@ jobs:
         shell: bash
         run: |
           if [ -f .github/issue-management/selective-preflight.json ]; then
-            node .github/issue-management/policy.mjs pr-preflight
+            bun .github/issue-management/policy.mjs pr-preflight
           else
-            node --input-type=module <<'NODE'
+            bun --input-type=module <<'NODE'
           import fs from 'node:fs'
           const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
           const automated = ['Bot', 'App'].includes(event.pull_request.user.type)
@@ -55,4 +55,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PROJECT_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node .github/issue-management/policy.mjs pr
+        run: bun .github/issue-management/policy.mjs pr

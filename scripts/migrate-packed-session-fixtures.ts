@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Temporary branch-convergence command for canonical projected session fixtures.
  *

@@ -102,7 +102,7 @@
   },
   "scripts": {
     "build:native": "xcrun python3 native/build_app.py",
-    "build:icon": "node native/generate_icon.mjs"
+    "build:icon": "bun native/generate_icon.mjs"
   },
   "os": [
     "darwin"

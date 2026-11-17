@@ -54,4 +54,4 @@ jobs:
       - name: Handle repository event
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node .github/issue-management/policy.mjs lifecycle
+        run: bun .github/issue-management/policy.mjs lifecycle

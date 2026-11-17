@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** Inspect the public Claude Code provider composition without invoking the product. */
 
 import { resolveConfigPath } from '@deepseek-ai/dsh-app-boot'

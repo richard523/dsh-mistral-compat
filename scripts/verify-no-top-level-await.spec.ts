@@ -132,7 +132,7 @@ describe('package source corpus', () => {
 
   it('excludes a source that starts with a shebang line, and only that file', () => {
     const directory = fixture({
-      'packages/a/tool/src/cli.ts': '#!/usr/bin/env node\nawait main()\n',
+      'packages/a/tool/src/cli.ts': '#!/usr/bin/env bun\nawait main()\n',
       'packages/a/tool/src/library.ts': 'await load()\n',
       'packages/a/tool/src/view.tsx': '',
     })
@@ -171,9 +171,9 @@ describe('package source corpus', () => {
   })
 
   it('treats only a leading #! as a shebang', () => {
-    expect(excludedEntry(FILE, '// #!/usr/bin/env node\nawait main()\n', new Set())).toBeUndefined()
-    expect(excludedEntry(FILE, ' #!/usr/bin/env node\n', new Set())).toBeUndefined()
-    expect(excludedEntry(FILE, '#!/usr/bin/env node\n', new Set())).toBe('shebang')
+    expect(excludedEntry(FILE, '// #!/usr/bin/env bun\nawait main()\n', new Set())).toBeUndefined()
+    expect(excludedEntry(FILE, ' #!/usr/bin/env bun\n', new Set())).toBeUndefined()
+    expect(excludedEntry(FILE, '#!/usr/bin/env bun\n', new Set())).toBe('shebang')
   })
 
   it.each([

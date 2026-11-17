@@ -1,6 +1,6 @@
 name: E2E (real DeepSeek API)
 
-# Real-API end-to-end suite (`pnpm run test:e2e`). Unlike ci.yml this job
+# Real-API end-to-end suite (`bun x pnpm run test:e2e`). Unlike ci.yml this job
 # consumes the DEEPSEEK_API_KEY_EXTERNAL secret (mapped to the env var
 # DEEPSEEK_API_KEY the tests read) and hits the external API at
 # https://api.deepseek.com/anthropic (DEEPSEEK_BASE_URL is pinned explicitly so a
@@ -71,13 +71,13 @@ jobs:
 
       - uses: pnpm/action-setup@v5.0.0
 
-      - uses: actions/setup-node@v7.0.0
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
+          bun-version: '1.4.2'
           cache: pnpm
 
       - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+        run: bun x pnpm install --frozen-lockfile
 
       - name: Restore verified bubblewrap archive
         id: bubblewrap-cache
@@ -124,10 +124,10 @@ jobs:
       # the built artifact under plain Node, resolving plugins through real package
       # exports — the shape a real consumer runs. That requires a prior build.
       - name: Build (lib for the e2e example bins)
-        run: ${{ github.event_name == 'pull_request' && 'pnpm run build:artifacts --profile official' || 'pnpm run build:official' }}
+        run: ${{ github.event_name == 'pull_request' && 'bun x pnpm run build:artifacts --profile official' || 'bun x pnpm run build:official' }}
 
       - name: Prepare Office runtime
-        run: pnpm run prepare:primary-runtime --target linux-x64 --output .cache/e2e-office
+        run: bun x pnpm run prepare:primary-runtime --target linux-x64 --output .cache/e2e-office
 
       # Real-API end-to-end tests only. The keyless gates (lint/typecheck/
       # coverage/snapshot/etc.) already run in ci.yml (pull requests) and
@@ -141,4 +141,4 @@ jobs:
           DSH_PRIMARY_RUNTIME: ${{ github.workspace }}/.cache/e2e-office/primary-runtime
           DSH_E2E_MAX_WORKERS: 6
           DSH_EXAMPLE_MODE: lib
-        run: pnpm run test:e2e
+        run: bun x pnpm run test:e2e

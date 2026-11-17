@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx src/bin.ts"
+    "start": "bun src/bin.ts"
   },
   "license": "MIT",
   "dependencies": {

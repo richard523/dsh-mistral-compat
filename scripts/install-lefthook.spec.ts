@@ -62,7 +62,7 @@ function write(path: string, content: string, mode?: number): void {
 }
 
 function fakeLefthookSource(): string {
-  return `#!/usr/bin/env node
+  return `#!/usr/bin/env bun
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
