@@ -90,8 +90,8 @@
     - id: agent-default-model
       name: '@deepseek-ai/dsh-agent-default-model'
       config:
-        provider: deepseek-official
-        model: deepseek-flash
+        provider: mistral
+        model: mistral-large-latest
 
     - id: jobs
       name: '@deepseek-ai/dsh-jobs-local'
@@ -134,6 +134,43 @@
     # document.
     - id: llm-pi-ai
       name: '@deepseek-ai/dsh-llm-pi-ai'
+      config:
+        providers:
+          # Native Mistral route (pi-ai's built-in provider: Conversations API,
+          # correct streaming for reasoning models incl. Large 4). Key comes
+          # from MISTRAL_API_KEY (env layer / $DSH_HOME/.env).
+          mistral:
+            displayName: Mistral (native)
+            apiKeyEnv: MISTRAL_API_KEY
+            models:
+              - id: mistral-large-latest
+              - id: mistral-medium-latest
+              - id: mistral-small-latest
+              - id: codestral-latest
+              - id: magistral-medium-latest
+              - id: deepseek-v4-1-flash-1017
+              - id: zai-glm-5-3
+              - id: zai-glm-5-3-flash
+          # OpenAI-compatible /v1 route. Mistral rejects OpenAI-only request
+          # fields, so the compat switches drop store/developer-role and use
+          # max_tokens.
+          mistral-v1:
+            displayName: Mistral (OpenAI-compatible /v1)
+            apiKeyEnv: MISTRAL_API_KEY
+            api: openai-completions
+            baseURL: https://api.mistral.ai/v1
+            compat:
+              supportsStore: false
+              supportsDeveloperRole: false
+              maxTokensField: max_tokens
+            models:
+              - id: mistral-medium-latest
+              - id: mistral-small-latest
+              - id: codestral-latest
+              - id: magistral-medium-latest
+              - id: deepseek-v4-1-flash-1017
+              - id: zai-glm-5-3
+              - id: zai-glm-5-3-flash
 
     - id: session-persistence-jsonl
       name: '@deepseek-ai/dsh-session-persistence-jsonl'

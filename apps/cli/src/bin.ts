@@ -31,9 +31,12 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
   switch (invocation.mode) {
     case 'profile': {
       const { runProfile } = await import('./profile-boot.ts')
+      const { ensureMistralApiKey } = await import('./mistral-key.ts')
+      const environment = loadLayeredEnv('dsh')
+      await ensureMistralApiKey()
       try {
         await runProfile({
-          environment: loadLayeredEnv('dsh'),
+          environment,
           profile: invocation.profile,
           fromDefaultProfile: invocation.fromDefaultProfile,
           patchFiles: invocation.patches,
