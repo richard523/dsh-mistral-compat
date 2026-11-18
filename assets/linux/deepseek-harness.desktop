@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DeepSeek Harness
+Comment=DeepSeek Harness (dsh) web UI in a Helium app window
+Exec=dsh-helium-pwa
+Icon=deepseek-harness
+Terminal=false
+Categories=Development;
+StartupWMClass=deepseek-harness
