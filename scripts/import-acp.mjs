@@ -119,13 +119,39 @@ function writeSession(chat, fallbackCwd, fallbackHost) {
   }
   // A trailing user message leaves its turn open; close it so the log is quiescent.
   closeTurn()
+  let titleSeq
   if (chat.title) {
+    titleSeq = seq
     lines.push(JSON.stringify({ type: 'session/title', seq: seq++, time: now + seq, data: { title: chat.title, messageSeqs: [], source: { kind: 'user' } } }))
   }
   // The v4 reader expects ONE ZSTD FRAME PER LINE (header frame first); node's
   // zstdCompressSync produces exactly that, unlike the zstd CLI (one frame).
   const zsted = join(dir, 'session.v4.jsonl.zstd')
   writeFileSync(zsted, Buffer.concat(lines.map(l => zstdCompressSync(Buffer.from(l + '\n', 'utf8')))))
+  // Seed the persisted projection cache so the cold session list shows the
+  // title without opening the session. Layout mirrors the shipped backends:
+  // one per-record document per session under storages/session_projcache.
+  // `version: 7` mirrors projectionCacheDomainSpec; the title row's `ver: 1`
+  // mirrors the title projection's stateVersion. Identity must match the
+  // header written above (createdAt/cwd/isSeeded/formatVersion 4).
+  if (chat.title) {
+    const projcacheDir = join(home, 'storages/session_projcache/sessions')
+    mkdirSync(projcacheDir, { recursive: true })
+    const document = {
+      version: 7,
+      record: {
+        identity: {
+          formatVersion: 4,
+          createdAt: now,
+          cwd: resolve(cwd),
+          isSeeded: false,
+          inheritedEventCount: 0,
+        },
+        rows: { title: { ver: 1, seq: titleSeq, val: chat.title } },
+      },
+    }
+    writeFileSync(join(projcacheDir, `${id}.json`), JSON.stringify(document, null, 2) + '\n')
+  }
   return { id, cwd: resolve(cwd), remoteHost, messages: seq }
 }
 
