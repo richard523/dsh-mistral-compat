@@ -32,7 +32,7 @@ export function owningGroupKey(
   const workspaceId = workspaces.find(workspace => workspace.sessionIds.includes(sessionId))
     ?.workspaceId as string | undefined
   if (workspaceId === undefined) return remoteHost === undefined ? UNGROUPED_KEY : `@${remoteHost}`
-  return remoteHost === undefined ? workspaceId : `${workspaceId}@${remoteHost}`
+  return hostGroupKey(workspaceId, remoteHost)
 }
 
 /**

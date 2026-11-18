@@ -329,7 +329,7 @@ function SessionTree({
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   const revealGroup = revealSessionId === undefined || !workspaceReady
     ? undefined
-    : owningGroupKey(workspaces, revealSessionId)
+    : owningGroupKey(workspaces, revealSessionId, list.byId[revealSessionId]?.remoteHost)
   // Per-group raised watermarks; an absent key means the base watermark.
   const [storedWatermarks, setStoredWatermarks] = useState<Readonly<Record<string, number>>>({})
   // Advances on user-driven watermark changes so AnimatedRows settles them; automatic raises animate.
@@ -343,7 +343,7 @@ function SessionTree({
   useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined || !workspaceReady
     ? undefined
-    : owningGroupKey(workspaces, current)
+    : owningGroupKey(workspaces, current, list.byId[current]?.remoteHost)
   useEffect(() => {
     if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
     setGroupExpanded(currentGroup, true)

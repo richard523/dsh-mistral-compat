@@ -179,8 +179,10 @@ const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
 
 /**
  * Durable workspace registry. Startup waits for `sessionPersistence`, builds
- * one canonical-cwd header index, and completes the one-time history
- * bootstrap before the service becomes active. The persistence dependency is
+ * one canonical-cwd header index, and reconciles the history bootstrap before
+ * the service becomes active — on every boot, not only the first, so a cwd
+ * that first appears in history later still becomes a real Workspace group
+ * instead of trailing in the ungrouped bucket. The persistence dependency is
  * mandatory so an unavailable peer can never be mistaken for an empty
  * history and commit the initialized marker.
  */
@@ -222,13 +224,11 @@ export class WorkspaceRegistry extends Service {
 
     await this.recoverPendingMutation()
     this.validateStoredState(this.state)
-    if (!this.state.initialized) {
-      const headers = await this.listStoredHeaders()
-      await this.replaceHeaderIndex(headers)
-      await this.bootstrap(headers)
-    } else if (this.table.size > 0) {
-      await this.replaceHeaderIndex(await this.listStoredHeaders())
-    }
+    // Reconcile on every boot: bootstrap() is idempotent — existing paths
+    // keep their Workspace, new valid cwds gain one, deleted cwds stay out.
+    const headers = await this.listStoredHeaders()
+    await this.replaceHeaderIndex(headers)
+    await this.bootstrap(headers)
 
     await this.indexLiveSessions()
     this.validateStoredState(this.requireState())
@@ -579,6 +579,8 @@ export class WorkspaceRegistry extends Service {
         ...state,
         pendingMutation: undefined,
         initialized: true,
+        // An explicit create re-admits the path: history bootstrap may adopt it again.
+        deletedPaths: state.deletedPaths.filter(path => path !== canonical),
         ...(firstUse ? { defaultWorkspaceId: id } : {}),
         workspaceIds: [id, ...state.workspaceIds],
       })
@@ -614,6 +616,7 @@ export class WorkspaceRegistry extends Service {
       pendingMutation: undefined,
       initialized: true,
       workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
+      deletedPaths: [...new Set([...state.deletedPaths, entity.path])],
     }
     await this.setState({
       ...nextState,
@@ -695,7 +698,10 @@ export class WorkspaceRegistry extends Service {
       for (const sessionId of record.sessionIds) accounted.set(sessionId, id)
     }
 
+    const tombstoned = new Set(this.requireState().deletedPaths)
     for (const group of groups) {
+      // A deleted Workspace stays deleted: its history does not resurrect it.
+      if (tombstoned.has(group.path)) continue
       let id = byPath.get(group.path)
       if (id === undefined) {
         const sessionIds = group.headers
@@ -717,6 +723,11 @@ export class WorkspaceRegistry extends Service {
         continue
       }
 
+      // Once initialized, a live Workspace's membership changes only through
+      // attach/detach: reconcile boot adopts history into NEW groups only, so
+      // a stored header whose cwd merely matches is not pulled into the account.
+      if (state.initialized) continue
+
       const current = table.get(id) as WorkspaceRecord
       const historical = group.headers
         .map(header => header.id)
@@ -737,31 +748,41 @@ export class WorkspaceRegistry extends Service {
 
     const groupRank = new Map(groups.map(group => [group.path, group.newestAt]))
     const priorRank = new Map(state.workspaceIds.map((id, index) => [id, index]))
-    const workspaceIds = [...table.entries()]
-      .sort(([leftId, left], [rightId, right]) => {
-        const leftTime = groupRank.get(left.path) ?? Date.parse(left.createdAt)
-        const rightTime = groupRank.get(right.path) ?? Date.parse(right.createdAt)
-        return rightTime - leftTime
-          || (priorRank.get(leftId) ?? Number.MAX_SAFE_INTEGER)
-            - (priorRank.get(rightId) ?? Number.MAX_SAFE_INTEGER)
-          || String(leftId).localeCompare(String(rightId))
-      })
-      .map(([id]) => id)
-
-    if (!sameIds(state.workspaceIds, workspaceIds)) {
-      await this.setState({
-        initialized: false,
-        workspaceIds,
-        archivedSessionIds: state.archivedSessionIds,
-        pinnedSessionIds: state.pinnedSessionIds,
-      })
+    let workspaceIds: WorkspaceId[]
+    if (state.initialized) {
+      // A reconciled boot keeps the persisted display order (including manual
+      // moves) and front-loads only groups that gained a Workspace this boot,
+      // newest activity first.
+      const added = [...table.keys()]
+        .filter(id => !priorRank.has(id))
+        .sort((leftId, rightId) => {
+          const left = table.get(leftId) as WorkspaceRecord
+          const right = table.get(rightId) as WorkspaceRecord
+          const leftTime = groupRank.get(left.path) ?? Date.parse(left.createdAt)
+          const rightTime = groupRank.get(right.path) ?? Date.parse(right.createdAt)
+          return rightTime - leftTime || String(leftId).localeCompare(String(rightId))
+        })
+      workspaceIds = [...added, ...state.workspaceIds]
+    } else {
+      workspaceIds = [...table.entries()]
+        .sort(([leftId, left], [rightId, right]) => {
+          const leftTime = groupRank.get(left.path) ?? Date.parse(left.createdAt)
+          const rightTime = groupRank.get(right.path) ?? Date.parse(right.createdAt)
+          return rightTime - leftTime
+            || (priorRank.get(leftId) ?? Number.MAX_SAFE_INTEGER)
+              - (priorRank.get(rightId) ?? Number.MAX_SAFE_INTEGER)
+            || String(leftId).localeCompare(String(rightId))
+        })
+        .map(([id]) => id)
     }
-    await this.setState({
-      initialized: true,
-      workspaceIds,
-      archivedSessionIds: state.archivedSessionIds,
-      pinnedSessionIds: state.pinnedSessionIds,
-    })
+
+    const orderChanged = !sameIds(state.workspaceIds, workspaceIds)
+    if (orderChanged) {
+      await this.setState({ ...state, initialized: false, workspaceIds })
+    }
+    if (orderChanged || !state.initialized) {
+      await this.setState({ ...state, initialized: true, workspaceIds })
+    }
   }
 
   private validateStoredState(state: WorkspaceDomainState): void {

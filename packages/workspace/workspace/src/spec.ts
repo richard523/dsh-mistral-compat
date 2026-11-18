@@ -61,6 +61,12 @@ export const workspaceDomainState = z.object({
   workspaceIds: z.array(workspaceId),
   archivedSessionIds: z.array(sessionId).default([]),
   pinnedSessionIds: z.array(sessionId).default([]),
+  /**
+   * Canonical paths of deleted Workspaces. History bootstrap skips these so a
+   * deleted project is not resurrected from session headers on the next boot.
+   * Defaulted so records written before the field parse unchanged.
+   */
+  deletedPaths: z.array(z.string()).default([]),
   pendingMutation: workspacePendingMutation.optional(),
 })
 
@@ -78,7 +84,7 @@ export const workspaceDomainSpec = defineDomain({
   version: 2,
   global: {
     schema: workspaceDomainState,
-    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [] },
+    initial: { initialized: false, workspaceIds: [], archivedSessionIds: [], pinnedSessionIds: [], deletedPaths: [] },
   },
   tables: { workspaces: domainTable<WorkspaceId, WorkspaceRecord>(workspaceRecord) },
 })
