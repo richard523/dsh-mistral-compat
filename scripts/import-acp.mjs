@@ -70,8 +70,11 @@ function parseChat(text, fileLabel) {
 
 function writeSession(chat, fallbackCwd, fallbackHost) {
   // dsh stores sessions under the REALPATH of cwd; mirror that so the header
-  // identity check (generationLogPath) matches the on-disk location.
-  const cwd = realpathSync(resolve(chat.cwd ?? fallbackCwd))
+  // identity check (generationLogPath) matches the on-disk location. A cwd
+  // that no longer exists falls back to the resolved spelling (the session
+  // then reads back as a missing-directory stray).
+  let cwd
+  try { cwd = realpathSync(resolve(chat.cwd ?? fallbackCwd)) } catch { cwd = resolve(chat.cwd ?? fallbackCwd) }
   const remoteHost = chat.host ?? fallbackHost
   const id = chat.id?.startsWith('session-') ? chat.id : `session-${randomUUID()}`
   const dir = join(projectDir(cwd, remoteHost), id)
@@ -109,7 +112,7 @@ function writeSession(chat, fallbackCwd, fallbackHost) {
         openTurn = true
       }
       push('step/start', { turn, step: 1 })
-      push('assistant/message', { turn, step: 1, message: { role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: m.provider ?? 'imported', model: m.model ?? 'imported' }, id: randomUUID() } })
+      push('assistant/message', { turn, step: 1, stream: [], message: { role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: m.provider ?? 'imported', model: m.model ?? 'imported' }, id: randomUUID() } })
       push('step/end', { turn, step: 1 })
       closeTurn()
     }
