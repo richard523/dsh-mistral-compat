@@ -14,6 +14,18 @@ DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL B
 
 Review the [safety notice](SAFETY.md) before running the project.
 
+## Differences from upstream `deepseek-ai/deepseek-harness`
+
+This fork (`dsh-mistral-compat`) layers the following on top of upstream:
+
+- **Bun everywhere.** Runtime, scripts, and CI run on [Bun](https://bun.sh); profile module resolution is materialized as `node_modules` symlinks. `bunx @deepseek-ai/dsh …` is the primary entrypoint.
+- **Mistral models by default.** Web, headless, and ACP profiles default to the native Mistral provider (`mistral-large-latest`, with medium/flash in the model catalog). On first run the CLI prompts for a `MISTRAL_API_KEY` (https://console.mistral.ai) and stores it in `~/.dsh/.env` (0600); set the env var to skip the prompt. The same key also works with any OpenAI-compatible client pointed at `https://api.mistral.ai/v1`.
+- **ACP by default, with cross-client agent history.** The `acp` profile speaks the Agent Client Protocol over JSON-RPC stdio. `session/list` marks the active session (`_meta.active`) and autocategorizes every entry by project (`_meta.category`) and SSH host (`_meta.host`). `scripts/import-acp.mjs` imports any ACP client's transcript (`--cwd`, `--host`), and `scripts/import-vibe.mjs` pulls in Mistral Vibe CLI histories; imported chats land in their project group in the sidebar with titles shown immediately.
+- **Sessions separated by SSH host.** Zed-style but producer-agnostic: sessions created over SSH are stored under `--<host>@<project>--` and grouped per host in the web UI; stamp explicitly with `DSH_SESSION_REMOTE_HOST`. The v4 session format carries an optional `remoteHost` header field.
+- **Workspace groups reconcile on every boot.** A project path that first appears in history later still gets its own workspace group (previously only the first boot bootstrapped); deleted workspaces leave tombstones and are not resurrected, and manual group order survives restarts.
+- **Helium PWA launcher.** `scripts/helium-pwa.sh` plus `assets/linux/deepseek-harness.desktop` open the web UI as a standalone Helium app window (`dsh-helium-pwa install` registers the desktop entry and icon). The web manifest also ships a raster `favicon.ico`.
+- **`rust-migration` branch.** A native Rust app migration lives on the `rust-migration` branch.
+
 ## Run
 
 ### Run from `npm`
@@ -41,8 +53,8 @@ Both the web and ACP profiles default to Mistral models (`mistral-large-latest`)
 To run from a repository checkout:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/richard523/dsh-mistral-compat.git
+cd dsh-mistral-compat
 pnpm install
 pnpm run build
 pnpm dsh web

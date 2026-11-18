@@ -14,13 +14,25 @@ DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来
 
 运行本项目前，请阅读[安全说明](SAFETY.zh.md)。
 
+## 与上游 `deepseek-ai/deepseek-harness` 的差异
+
+本仓库（`dsh-mistral-compat`）在上游基础上增加：
+
+- **全面使用 Bun。** 运行时、脚本与 CI 均改用 [Bun](https://bun.sh)；profile 模块解析物化为 `node_modules` 符号链接。主入口为 `bunx @deepseek-ai/dsh …`。
+- **默认 Mistral 模型。** web、headless 与 ACP profile 默认使用原生 Mistral provider（`mistral-large-latest`，目录中还有 medium/flash）。首次运行会提示输入 `MISTRAL_API_KEY`（https://console.mistral.ai）并保存到 `~/.dsh/.env`（0600）；直接设置环境变量可跳过提示。同一个 key 也可用于任何指向 `https://api.mistral.ai/v1` 的 OpenAI 兼容客户端。
+- **默认支持 ACP，并聚合各客户端的 agent 会话历史。** `acp` profile 通过 JSON-RPC stdio 提供 Agent Client Protocol。`session/list` 会标记活动会话（`_meta.active`），并按项目（`_meta.category`）和 SSH 主机（`_meta.host`）自动归类。`scripts/import-acp.mjs` 可导入任意 ACP 客户端的对话（`--cwd`、`--host`），`scripts/import-vibe.mjs` 可导入 Mistral Vibe CLI 历史；导入的会话会归入对应项目分组，标题即时显示。
+- **按 SSH 主机分隔会话。** 采用 Zed 式但与具体工具无关的设计：SSH 下创建的会话存放在 `--<host>@<project>--` 目录，并在 Web UI 中按主机分组；可用 `DSH_SESSION_REMOTE_HOST` 显式标记。v4 会话格式新增可选的 `remoteHost` 头字段。
+- **每次启动都会对齐工作区分组。** 之后才出现在历史中的项目路径也能获得独立分组（此前仅首次启动会引导）；删除的工作区留下墓碑不会被恢复，手动排序在重启后保持。
+- **Helium PWA 启动器。** `scripts/helium-pwa.sh` 与 `assets/linux/deepseek-harness.desktop` 可把 Web UI 作为独立 Helium 应用窗口打开（`dsh-helium-pwa install` 注册桌面入口和图标）。Web manifest 同时提供栅格 `favicon.ico`。
+- **`rust-migration` 分支。** 原生 Rust 应用迁移位于 `rust-migration` 分支。
+
 <a id="run"></a>
 
 ## 运行
 
 ### 通过 `npm` 运行
 
-安装 `Node.js`，然后运行：
+安装 `Bun`，然后运行：
 
 ```sh
 bunx @deepseek-ai/dsh web
@@ -35,8 +47,8 @@ bunx @deepseek-ai/dsh web
 如需从仓库源码运行：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/richard523/dsh-mistral-compat.git
+cd dsh-mistral-compat
 pnpm install
 pnpm run build
 pnpm dsh web
