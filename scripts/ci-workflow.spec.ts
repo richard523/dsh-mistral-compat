@@ -158,13 +158,12 @@ describe('CI workflow', () => {
     expect(scripts.scripts.typecheck).toBe('tsx scripts/build.ts --scope typecheck')
   })
 
-  it('selects artifact builds only for PR release and API rehearsals', () => {
+  it('selects artifact builds only for PR release rehearsals', () => {
     const official = "${{ github.event_name == 'pull_request' && 'pnpm run build:artifacts --profile official' || 'pnpm run build:official' }}"
     const vendor = "${{ github.event_name == 'pull_request' && 'pnpm exec tsx scripts/compile-referenced-projects.ts host-libraries' || 'pnpm run build:lib:host' }}"
     for (const [file, jobName, expected] of [
       ['release.yml', 'pack', official],
       ['release-vendor.yml', 'pack', vendor],
-      ['e2e.yml', 'e2e', official],
     ] as const) {
       const job = workflowJob(loadWorkflow('.github/workflows/' + file), jobName)
       if (!Array.isArray(job.steps)) throw new TypeError(`${jobName} must define steps`)
@@ -217,7 +216,7 @@ describe('CI workflow', () => {
     expect(steps[preparation]).not.toHaveProperty('continue-on-error', true)
   })
 
-  it.each(['ci.yml', 'ci-master.yml', 'e2e.yml', 'release.yml', 'release-vendor.yml'])(
+  it.each(['ci.yml', 'ci-master.yml', 'release.yml', 'release-vendor.yml'])(
     '%s cancels superseded validation runs without crossing workflow or ref boundaries', (name) => {
       const workflow = loadWorkflow('.github/workflows/' + name)
       expect(workflow.concurrency).toEqual({
@@ -1062,15 +1061,7 @@ describe('CI workflow', () => {
   })
 })
 
-describe('Runtime and LLM e2e Blacksmith routing', () => {
-  it('routes DeepSeek e2e only through the Linux Blacksmith switch', () => {
-    const job = workflowJob(loadWorkflow('.github/workflows/e2e.yml'), 'e2e')
-    for (const mode of ['', 'selfhosted', 'unexpected', 'blacksmith']) {
-      expect(evaluateRunsOn(job['runs-on'], { vars: { DSH_CI_FAILOVER_LINUX: mode, DSH_CI_FAILOVER_WINDOWS: 'blacksmith' } }))
-        .toBe(mode === 'blacksmith' ? 'blacksmith-4vcpu-ubuntu-2404' : 'ubuntu-latest')
-    }
-  })
-
+describe('Runtime builder Blacksmith routing', () => {
   it('keeps native release and dispatch builders hosted while routing x64 CI by platform', () => {
     const workflow = loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml')
     const build = workflowJob(workflow, 'build')
@@ -1133,14 +1124,13 @@ describe('bubblewrap preparation script', () => {
   // persistent runners, and the manual benchmark matrix includes their 64/96-core
   // rows, so neither carries cache steps.
   const hostedOnly = "vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'"
-  const cachedJobs = new Map<string, string | undefined>([
+  const cachedJobs = new Map<string, string>([
     ['ci.yml:node-24-coverage', hostedOnly],
     ['ci.yml:node-24-consumers', hostedOnly],
     ['ci.yml:node-compat', hostedOnly],
-    ['e2e.yml:e2e', undefined],
   ])
 
-  it.each(['ci.yml', 'ci-master.yml', 'e2e.yml'])(
+  it.each(['ci.yml', 'ci-master.yml'])(
     '%s caches the verified archive only on the lanes that run on ephemeral runners',
     (name) => {
       const script = readFileSync(resolve(root, 'scripts/prepare-ci-bubblewrap.sh'), 'utf8')
@@ -1161,25 +1151,25 @@ describe('bubblewrap preparation script', () => {
         if (preparation < 0) continue
         preparations += 1
         const key = `${name}:${jobName}`
-        if (!cachedJobs.has(key)) {
+        const guard = cachedJobs.get(key)
+        if (guard === undefined) {
           expect(
             steps.filter(step => typeof step.uses === 'string' && step.uses.startsWith('actions/cache/')),
             key,
           ).toEqual([])
           continue
         }
-        const guard = cachedJobs.get(key)
         const cacheHit = "steps.bubblewrap-cache.outputs.cache-hit != 'true'"
         expect(steps[preparation - 1]).toEqual({
           name: 'Restore verified bubblewrap archive',
           id: 'bubblewrap-cache',
-          ...(guard === undefined ? {} : { if: guard }),
+          if: guard,
           uses: 'actions/cache/restore@v6.1.0',
           with: cache,
         })
         expect(steps[preparation + 1]).toEqual({
           name: 'Save verified bubblewrap archive',
-          if: guard === undefined ? cacheHit : `(${guard}) && ${cacheHit}`,
+          if: `(${guard}) && ${cacheHit}`,
           uses: 'actions/cache/save@v6.1.0',
           with: cache,
         })
@@ -1187,29 +1177,6 @@ describe('bubblewrap preparation script', () => {
       expect(preparations).toBeGreaterThan(0)
     },
   )
-})
-
-describe('DeepSeek e2e workflow', () => {
-  it('prepares bubblewrap from the pinned payload without a package transaction', () => {
-    const workflow = loadWorkflow('.github/workflows/e2e.yml')
-    const e2e = workflowJob(workflow, 'e2e')
-    if (!Array.isArray(e2e.steps)) throw new TypeError('DeepSeek e2e workflow must define steps')
-
-    const steps = e2e.steps.filter(isRecord)
-    expect(steps.find(step => step.name === 'Prepare bubblewrap (unrestrict userns)')).toMatchObject({
-      run: 'bash scripts/prepare-ci-bubblewrap.sh',
-    })
-    expect(JSON.stringify(steps)).not.toContain('apt-get')
-  })
-
-  it('bounds profile subprocess fan-out to the tested e2e default', () => {
-    const workflow = loadWorkflow('.github/workflows/e2e.yml')
-    const e2e = workflowJob(workflow, 'e2e')
-    if (!Array.isArray(e2e.steps)) throw new TypeError('DeepSeek e2e workflow must define steps')
-
-    const step = e2e.steps.filter(isRecord).find(candidate => candidate.name === 'E2E tests (real DeepSeek API)')
-    expect(step).toMatchObject({ env: { DSH_E2E_MAX_WORKERS: 6 } })
-  })
 })
 
 describe('Python release workflows', () => {
