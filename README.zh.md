@@ -18,7 +18,7 @@ DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来
 
 本仓库（`dsh-mistral-compat`）在上游基础上增加：
 
-- **全面使用 Bun。** 运行时、脚本与 CI 均改用 [Bun](https://bun.sh)；profile 模块解析物化为 `node_modules` 符号链接。主入口为 `bunx @deepseek-ai/dsh …`。
+- **全面使用 Bun。** 运行时、脚本与 CI 均改用 [Bun](https://bun.sh)；profile 模块解析物化为 `node_modules` 符号链接。主入口为 `bunx @deepseek-ai/dsh …`。Bun 宿主会把入口脚本之后的第一个 `--` 当作自己的选项终止符并吞掉，托管子进程运行器因此丢失了必需的私有分隔符——所有 `bash`、`glob`、`grep` 调用都报 `subprocess runner requires target argv after a private -- delimiter`。运行器入口现在会在 Bun 宿主上补回该分隔符。
 - **默认 Mistral 模型。** web、headless 与 ACP profile 默认使用原生 Mistral provider（`mistral-large-latest`，目录中还有 medium/flash）。首次运行会提示输入 `MISTRAL_API_KEY`（https://console.mistral.ai）并保存到 `~/.dsh/.env`（0600）；直接设置环境变量可跳过提示。同一个 key 也可用于任何指向 `https://api.mistral.ai/v1` 的 OpenAI 兼容客户端。
 - **默认支持 ACP，并聚合各客户端的 agent 会话历史。** `acp` profile 通过 JSON-RPC stdio 提供 Agent Client Protocol。`session/list` 会标记活动会话（`_meta.active`），并按项目（`_meta.category`）和 SSH 主机（`_meta.host`）自动归类。`scripts/import-acp.mjs` 可导入任意 ACP 客户端的对话（`--cwd`、`--host`），`scripts/import-vibe.mjs` 可导入 Mistral Vibe CLI 历史；导入的会话会归入对应项目分组，标题即时显示。
 - **按 SSH 主机分隔会话。** 采用 Zed 式但与具体工具无关的设计：SSH 下创建的会话存放在 `--<host>@<project>--` 目录，并在 Web UI 中按主机分组；可用 `DSH_SESSION_REMOTE_HOST` 显式标记。v4 会话格式新增可选的 `remoteHost` 头字段。
