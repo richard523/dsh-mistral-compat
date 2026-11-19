@@ -35,10 +35,78 @@ index 9038a1c..afda5ea 100644
                  type: "toolcall_delta",
                  contentIndex: toolBlocksByKey.get(key),
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index 0eeaffa..2e13492 100644
+index 0eeaffa..bd3a4e2 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
-@@ -449,11 +449,15 @@ export const stream = (model, context, options) => {
+@@ -148,6 +148,37 @@ function resolveCacheRetention(cacheRetention, env) {
+     }
+     return "short";
+ }
++/**
++ * Normalize one streamed `delta.content` value into text and thinking strings.
++ * OpenAI sends a plain string; Mistral-style OpenAI-compatible servers send
++ * content chunks such as `{ type: "thinking", thinking: [{ type: "text", text }] }`
++ * and `{ type: "text", text }`. Concatenating those chunks directly stringifies
++ * them ("[object Object]") and hands downstream consumers a non-string delta.
++ */
++function contentDeltaParts(content) {
++    if (typeof content === "string") {
++        return { text: content, thinking: "" };
++    }
++    let text = "";
++    let thinking = "";
++    if (Array.isArray(content)) {
++        for (const part of content) {
++            if (!part || typeof part !== "object")
++                continue;
++            if (part.type === "text" && typeof part.text === "string") {
++                text += part.text;
++            }
++            else if (part.type === "thinking" && Array.isArray(part.thinking)) {
++                for (const chunk of part.thinking) {
++                    if (chunk && typeof chunk.text === "string") {
++                        thinking += chunk.text;
++                    }
++                }
++            }
++        }
++    }
++    return { text, thinking };
++}
+ export const stream = (model, context, options) => {
+     const stream = new AssistantMessageEventStream();
+     const normalizedContext = resolveTranscript(context, getCompat(model).supportsMidConvoSystemMessages);
+@@ -426,15 +457,24 @@ export const stream = (model, context, options) => {
+                             appendOpenAIReasoningDetail(streamedReasoningDetails, detail);
+                         }
+                     }
+-                    if (choice.delta.content !== null &&
+-                        choice.delta.content !== undefined &&
+-                        choice.delta.content.length > 0) {
++                    const contentDelta = contentDeltaParts(choice.delta.content);
++                    if (contentDelta.thinking.length > 0) {
++                        const block = ensureThinkingBlock("");
++                        block.thinking += contentDelta.thinking;
++                        stream.push({
++                            type: "thinking_delta",
++                            contentIndex: getContentIndex(block),
++                            delta: contentDelta.thinking,
++                            partial: output,
++                        });
++                    }
++                    if (contentDelta.text.length > 0) {
+                         const block = ensureTextBlock();
+-                        block.text += choice.delta.content;
++                        block.text += contentDelta.text;
+                         stream.push({
+                             type: "text_delta",
+                             contentIndex: getContentIndex(block),
+-                            delta: choice.delta.content,
++                            delta: contentDelta.text,
+                             partial: output,
+                         });
+                     }
+@@ -449,11 +489,15 @@ export const stream = (model, context, options) => {
                              if (!block.name && name) {
                                  block.name = name;
                              }
@@ -55,7 +123,7 @@ index 0eeaffa..2e13492 100644
                              }
                              else if (toolCall.custom?.input) {
                                  const nextInput = getCustomToolCallInput(block) + toolCall.custom.input;
-@@ -1033,6 +1037,9 @@ export function convertMessages(model, context, compat, options) {
+@@ -1033,6 +1077,9 @@ export function convertMessages(model, context, compat, options) {
                              },
                          };
                      }
@@ -65,7 +133,7 @@ index 0eeaffa..2e13492 100644
                      return {
                          id: tc.id,
                          type: "function",
-@@ -1040,6 +1047,7 @@ export function convertMessages(model, context, compat, options) {
+@@ -1040,6 +1087,7 @@ export function convertMessages(model, context, compat, options) {
                              name: tc.name,
                              arguments: JSON.stringify(tc.arguments),
                          },
