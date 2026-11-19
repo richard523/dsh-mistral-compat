@@ -48,7 +48,7 @@ jobs:
           store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" bun x pnpm store path --silent)
           echo "path=$store_path" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache/restore@v6.1.0
+      - uses: actions/cache/restore@v6
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_BUN_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
