@@ -128,6 +128,10 @@ async function httpGetJson(path) {
 class Browser {
   constructor(ws) {
     this.ws = ws
+    /** An appOrigin page session, used to reach the page-scoped
+     * ServiceWorker domain (browser-level Storage/ServiceWorker commands are
+     * not exposed by this build; unregister takes scopeURL there). */
+    this.appOriginSession = undefined
     ws.onmessage = ev => { void this.onMessage(ev.data) }
   }
 
@@ -162,19 +166,40 @@ class Browser {
     if (holder) {
       await this.call('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId)
     }
+    if (type === 'page' && frameUrl(url)) {
+      // A TOP-LEVEL Le Chat window (the pane header's Sign-in button opens
+      // one): its app registers sw.js freely — nothing refills its responses,
+      // so the pane's in-document neutering never runs there — and the
+      // resulting registration reroutes ALL chat.mistral.ai document loads,
+      // including the embedded pane's, where refills cannot reach. Guard the
+      // page itself the same way (no refills needed: X-Frame-Options is
+      // irrelevant at top level), and unregister below.
+      const ack = await this.call('Page.addScriptToEvaluateOnNewDocument', { source: SW_OFF_SNIPPET }, sessionId)
+      if (ack.error !== undefined) log(`Page.addScriptToEvaluateOnNewDocument rejected (${ack.error.message})`)
+      const fetch = await this.call('Fetch.enable', {
+        patterns: [{ urlPattern: swPattern, requestStage: 'Request' }],
+      }, sessionId)
+      if (fetch.error !== undefined) log(`Fetch.enable rejected on page ${targetInfo.targetId}: ${fetch.error.message}`)
+      else log(`service worker guard on top-level page (${url.split('?')[0]})`)
+      this.unregisterChatSW(sessionId)
+      this.release(sessionId, type)
+      return
+    }
     if (type === 'service_worker' && frameUrl(url)) {
-      // A registration persisted before this daemon existed: keep the worker
-      // itself fetch-bypassed while it lives (the launcher purges the
-      // registration at the next window start; Chromium exposes no
-      // unregister over DevTools in this build).
+      // A registration persisted before this daemon existed (or re-armed by
+      // a stale page): bypass the worker's fetch handler while it lives and
+      // unregister it via the appOrigin page session — this build only
+      // accepts unregister on PAGE sessions, with scopeURL.
       await this.call('ServiceWorker.setBypassFetchHandler', { encodedScriptUrl: url })
       await this.call('ServiceWorker.setCacheDisabled', { cacheDisabled: true })
-      log(`service worker fetch bypassed (${url.split('?')[0]})`)
+      log(`service worker bypassed (${url.split('?')[0]}); unregistering`)
+      this.unregisterChatSW(this.appOriginSession)
       this.release(sessionId, type)
       return
     }
     const mine = (type === 'page' && url.startsWith(appOrigin))
       || (type === 'iframe' && frameUrl(url))
+    if (mine && type === 'page') this.appOriginSession = sessionId
     if (mine && type !== 'service_worker' && !intercepting.has(sessionId)) {
       const ack = await this.call('Fetch.enable', {
         patterns: [
@@ -199,6 +224,21 @@ class Browser {
       }
     }
     this.release(sessionId, type)
+  }
+
+  /** Unregister Le Chat's service worker through a PAGE session — this build
+   * exposes ServiceWorker.unregister only there, with the scopeURL param.
+   * Used opportunistically; harmless when the registration is missing. */
+  async unregisterChatSW(sessionId) {
+    if (sessionId === undefined) return
+    const enable = await this.call('ServiceWorker.enable', {}, sessionId)
+    if (enable.error !== undefined) return
+    const ack = await this.call('ServiceWorker.unregister', { scopeURL: `https://chat.${frameHost}/` }, sessionId)
+    if (ack.error !== undefined) {
+      log(`unregister rejected: ${ack.error.message}`)
+    } else {
+      log(`service worker registration unregistered`)
+    }
   }
 
   /** Let a child that was auto-attached with waitForDebuggerOnStart run. */
