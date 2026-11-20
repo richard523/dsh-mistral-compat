@@ -4,9 +4,12 @@
 # browser). When run from a repository checkout, always serves THAT checkout:
 # backend straight from source and the web frontend rebuilt whenever its
 # sources are newer than the built bundle, so the checkout is the source of
-# truth and no reinstall is ever needed. A stale dsh server from a different
-# install on the same port is replaced; anything else on the port is left
-# alone with a warning.
+# truth and no reinstall is ever needed. New Mistral Vibe CLI sessions are
+# imported on the way (scripts/import-vibe.mjs --new-only, honoring the
+# importer's server-stopped contract), so chats from the Vibe CLI show up in
+# the sidebar with every click. A stale dsh server from a different install on
+# the same port is replaced; anything else on the port is left alone with a
+# warning.
 #
 #   dsh-helium-pwa            start (if needed) and open the app window
 #   dsh-helium-pwa install    install the .desktop entry + icon for the user
@@ -37,6 +40,8 @@ here=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$here/.." && pwd)
 CLI_SRC="$REPO_ROOT/apps/cli/src/bin.ts"
 BUN=$(command -v bun || true)
+VIBE_STORE="${VIBE_HOME:-$HOME/.vibe/logs/session}"
+VIBE_IMPORT_STATE="$DSH_HOME_DIR/logs/vibe-import.state"
 
 if [ "${1:-}" = "install" ]; then
   apps="$HOME/.local/share/applications"
@@ -151,24 +156,75 @@ check_server_up() {
   fi
 }
 
-code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$BASE" 2>/dev/null); code=${code:-000}; [ -z "$code" ] && code=000
+# Pull Mistral Vibe CLI sessions that are newer than the last import into the
+# dsh session store (`scripts/import-vibe.mjs --new-only`, never clobbering
+# sessions resumed inside dsh). The importer requires the server to be stopped,
+# so an already-running server owned by this checkout is stopped first and the
+# caller re-probes: the click then follows the cold-start path. A dry run first
+# decides whether anything is pending, so clicks with nothing new neither stop
+# the server nor pay the import.
+maybe_import_vibe() {
+  [ "$RUN_MODE" = "source" ] || return 1
+  [ -n "$BUN" ] || return 1
+  [ -d "$VIBE_STORE" ] || return 1
+  if [ -f "$VIBE_IMPORT_STATE" ] \
+    && ! find "$VIBE_STORE" -newer "$VIBE_IMPORT_STATE" -print -quit 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  pending=$(cd "$REPO_ROOT" && "$BUN" scripts/import-vibe.mjs --new-only --dry-run 2>/dev/null \
+    | grep -o 'importing [0-9]*' | head -1)
+  count=${pending#importing }
+  case "$count" in ''|*[!0-9]*) return 1;; esac
+  [ "$count" -gt 0 ] || return 1
+  echo "dsh-helium-pwa: $count new Vibe session(s), importing..." >&2
+  if [ "$listener" = "ours" ]; then
+    echo "dsh-helium-pwa: stopping the running server for the import" >&2
+    kill "$LISTENER_PID" 2>/dev/null
+    wait_port_free 10
+    if [ -n "$(port_pid)" ]; then
+      kill -9 "$LISTENER_PID" 2>/dev/null
+      wait_port_free 5
+    fi
+  fi
+  mkdir -p "$(dirname "$VIBE_IMPORT_STATE")" "$(dirname "$LOG")"
+  if out=$(cd "$REPO_ROOT" && "$BUN" scripts/import-vibe.mjs --new-only 2>&1); then
+    printf '%s\n' "$out" >>"$LOG"
+    echo "$out" >&2
+    touch "$VIBE_IMPORT_STATE"
+  else
+    printf '%s\n' "$out" >>"$LOG" 2>/dev/null
+    echo "dsh-helium-pwa: vibe import failed; continuing without it" >&2
+  fi
+}
+
+# One probe pass: HTTP status code, listening pid, its cmdline, classification.
+probe_all() {
+  code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$BASE" 2>/dev/null); code=${code:-000}; [ -z "$code" ] && code=000
+  LISTENER_PID=$(port_pid)
+  CMD=$(pid_cmdline "$LISTENER_PID")
+  if [ -n "$LISTENER_PID" ] && [ "$RUN_MODE" = "source" ] && cmd_has "$CLI_SRC"; then
+    listener="ours"
+  elif [ -n "$LISTENER_PID" ] && [ "$RUN_MODE" = "bin" ] && [ -n "${RUN_BIN:-}" ] && cmd_has "$RUN_BIN"; then
+    listener="ours"
+  elif [ -n "$LISTENER_PID" ] && cmd_has 'node_modules/@deepseek-ai/dsh'; then
+    listener="stale-dsh"
+  elif [ -n "$LISTENER_PID" ]; then
+    listener="unrelated"
+  else
+    listener="none"
+  fi
+}
+
 url="$BASE"
 
 # Who holds the port: our server, a stale dsh from another install, or an
 # unrelated listener.
-LISTENER_PID=$(port_pid)
-CMD=$(pid_cmdline "$LISTENER_PID")
+probe_all
 
-if [ -n "$LISTENER_PID" ] && [ "$RUN_MODE" = "source" ] && cmd_has "$CLI_SRC"; then
-  listener="ours"
-elif [ -n "$LISTENER_PID" ] && [ "$RUN_MODE" = "bin" ] && [ -n "${RUN_BIN:-}" ] && cmd_has "$RUN_BIN"; then
-  listener="ours"
-elif [ -n "$LISTENER_PID" ] && cmd_has 'node_modules/@deepseek-ai/dsh'; then
-  listener="stale-dsh"
-elif [ -n "$LISTENER_PID" ]; then
-  listener="unrelated"
-else
-  listener="none"
+# Import new Vibe sessions first (stop→import→start, per the importer's
+# contract); re-probe when the import stopped our server.
+if maybe_import_vibe && [ "$listener" = "ours" ]; then
+  probe_all
 fi
 
 started_new="no"

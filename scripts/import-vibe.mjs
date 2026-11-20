@@ -22,6 +22,8 @@
  *   --dir       import only sessions whose working directory equals WORKDIR
  *              (repeatable; default: all projects, grouped by their own cwd)
  *   --since     skip sessions started before this time
+ *   --new-only  skip sessions already present in the dsh store: never overwrites a
+ *              session that was since resumed/extended inside dsh (safe for repeated runs)
  *   --with-tools  also render tool calls/results as note messages (default: messages only)
  */
 import { execFileSync } from 'node:child_process'
@@ -41,6 +43,7 @@ const dirs = []
 let since
 let withTools = false
 let dryRun = false
+let newOnly = false
 for (let i = 0; i < args.length; i++) {
   const a = args[i]
   if (a === '--vibe-home') vibeHome = resolve(args[++i])
@@ -48,6 +51,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--since') since = Date.parse(args[++i])
   else if (a === '--stage') stage = resolve(args[++i])
   else if (a === '--with-tools') withTools = true
+  else if (a === '--new-only') newOnly = true
   else if (a === '--dry-run') dryRun = true
   else { console.error(`unknown arg: ${a}`); process.exit(2) }
 }
@@ -153,10 +157,37 @@ function collect() {
 }
 
 const all = collect()
+
+// Mirrors slugOf()/projectDir() in import-acp.mjs (and projectKey() in
+// session-persistence-jsonl/src/format.ts): the on-disk group directory name.
+function slugOf(value) {
+  let readable = ''
+  let separatorRun = false
+  for (const ch of value) {
+    if (ch === '/' || ch === '\\' || ch === ':') { if (!separatorRun) readable += '-'; separatorRun = true }
+    else if (ch !== '~' && /^[A-Za-z0-9._-]$/.test(ch)) { readable += ch; separatorRun = false }
+    else { readable += '~' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'); separatorRun = false }
+  }
+  return readable.replace(/^-+/, '') || 'root'
+}
+
+const sessionsRoot = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'sessions')
+
+/**
+ * Whether this vibe session already has a dsh store directory. --new-only
+ * skips those: re-import overwrites the session log in place, so a session
+ * that was resumed and extended inside dsh would lose the dsh-side turns.
+ */
+function alreadyInStore(s) {
+  const dir = join(sessionsRoot, `--${slugOf(lenientRealpath(s.cwd)).slice(0, 251)}--`)
+  return existsSync(join(dir, `session-${s.id}`))
+}
+
 const picked = all.filter(s =>
   (dirs.length === 0 || dirs.includes(lenientRealpath(s.cwd)))
-  && (since === undefined || s.startTime >= since))
-console.log(`vibe store: ${all.length} session(s); importing ${picked.length}`)
+  && (since === undefined || s.startTime >= since)
+  && (!newOnly || !alreadyInStore(s)))
+console.log(`vibe store: ${all.length} session(s); importing ${picked.length}` + (newOnly ? ` (--new-only skipped ${all.length - picked.length} already in the dsh store)` : ''))
 
 if (dryRun) {
   for (const s of picked) console.log(`  would import ${s.id}  cwd=${s.cwd}  started=${new Date(s.startTime).toISOString()}`)
