@@ -147,10 +147,21 @@ class Browser {
   }
 
   async maybeEnableFetch(targetInfo, sessionId) {
-    // Chain auto-attach on every session: pages emit their OOPIFs only when
-    // the page session itself also runs Target.setAutoAttach.
-    await this.call('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId)
     const { type, url } = targetInfo
+    // Chain auto-attach on every session: pages emit their OOPIFs only when
+    // the page session itself also runs Target.setAutoAttach. Children are
+    // started WAITING for the debugger, so a brand-new frame cannot race its
+    // first response past the Fetch.enable below ("v2.auth.mistral.ai
+    // refused to connect" was exactly that race: a cross-origin navigation
+    // swaps in a fresh OOPIF, and when its document answered before the
+    // interception patterns were armed, the engine honored the original
+    // X-Frame-Options and blocked the frame). Every attached child is
+    // released with Runtime.runIfWaitingForDebugger at the end — after the
+    // guards are in place.
+    const holder = (type === 'page') || (type === 'iframe')
+    if (holder) {
+      await this.call('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId)
+    }
     if (type === 'service_worker' && frameUrl(url)) {
       // A registration persisted before this daemon existed: keep the worker
       // itself fetch-bypassed while it lives (the launcher purges the
@@ -159,30 +170,44 @@ class Browser {
       await this.call('ServiceWorker.setBypassFetchHandler', { encodedScriptUrl: url })
       await this.call('ServiceWorker.setCacheDisabled', { cacheDisabled: true })
       log(`service worker fetch bypassed (${url.split('?')[0]})`)
+      this.release(sessionId, type)
       return
     }
     const mine = (type === 'page' && url.startsWith(appOrigin))
       || (type === 'iframe' && frameUrl(url))
-    if (!mine || type === 'service_worker' || intercepting.has(sessionId)) return
-    if (type === 'iframe') {
-      // Runs in every NEW document of the frame, before its scripts: neuters
-      // navigator.serviceWorker.register so no worker ever installs.
-      const ack = await this.call('Page.addScriptToEvaluateOnNewDocument', { source: SW_OFF_SNIPPET }, sessionId)
-      if (ack.error !== undefined) log(`Page.addScriptToEvaluateOnNewDocument rejected (${ack.error.message})`)
+    if (mine && type !== 'service_worker' && !intercepting.has(sessionId)) {
+      const ack = await this.call('Fetch.enable', {
+        patterns: [
+          { urlPattern: swPattern, requestStage: 'Request' },
+          { urlPattern: sitePattern, requestStage: 'Response' },
+          { urlPattern: authSitePattern, requestStage: 'Response' },
+        ],
+      }, sessionId)
+      if (ack.error !== undefined) {
+        log(`Fetch.enable rejected on ${type} ${targetInfo.targetId}: ${ack.error.message}`)
+      } else {
+        intercepting.add(sessionId)
+        log(`intercepting on ${type} ${targetInfo.targetId} (${url.split('?')[0]})`)
+      }
+      if (type === 'iframe') {
+        // Runs in every NEW document of the frame, before its scripts:
+        // neuters navigator.serviceWorker.register so no worker ever
+        // installs. Must land before the frame is released below, so the
+        // document about to load already carries the guard.
+        const ack = await this.call('Page.addScriptToEvaluateOnNewDocument', { source: SW_OFF_SNIPPET }, sessionId)
+        if (ack.error !== undefined) log(`Page.addScriptToEvaluateOnNewDocument rejected (${ack.error.message})`)
+      }
     }
-    const ack = await this.call('Fetch.enable', {
-      patterns: [
-        { urlPattern: swPattern, requestStage: 'Request' },
-        { urlPattern: sitePattern, requestStage: 'Response' },
-        { urlPattern: authSitePattern, requestStage: 'Response' },
-      ],
-    }, sessionId)
-    if (ack.error !== undefined) {
-      log(`Fetch.enable rejected on ${type} ${targetInfo.targetId}: ${ack.error.message}`)
-      return
-    }
-    intercepting.add(sessionId)
-    log(`intercepting on ${type} ${targetInfo.targetId} (${url.split('?')[0]})`)
+    this.release(sessionId, type)
+  }
+
+  /** Let a child that was auto-attached with waitForDebuggerOnStart run. */
+  release(sessionId, type) {
+    this.call('Runtime.runIfWaitingForDebugger', {}, sessionId).then(ack => {
+      if (ack.error !== undefined && !/wasn't waiting|not waiting/i.test(ack.error.message)) {
+        log(`runIfWaitingForDebugger rejected on ${type}: ${ack.error.message}`)
+      }
+    })
   }
 
   async onMessage(raw) {
