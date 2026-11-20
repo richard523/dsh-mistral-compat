@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Mistral Le Chat
-Comment=Mistral Le Chat (chat.mistral.ai) in a Helium app window
-Exec=dsh-helium-lechat
-Icon=mistral-lechat
-Terminal=false
-Categories=Development;
-StartupWMClass=mistral-lechat

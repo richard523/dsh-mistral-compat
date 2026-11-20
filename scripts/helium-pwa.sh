@@ -7,9 +7,12 @@
 # truth and no reinstall is ever needed. New Mistral Vibe CLI sessions are
 # imported on the way (scripts/import-vibe.mjs --new-only, honoring the
 # importer's server-stopped contract), so chats from the Vibe CLI show up in
-# the sidebar with every click. A stale dsh server from a different install on
-# the same port is replaced; anything else on the port is left alone with a
-# warning.
+# the sidebar with every click. The window's Le Chat pane (the Mistral-mark
+# button, Ctrl+Alt+M) embeds chat.mistral.ai live: the window is opened with a
+# loopback DevTools port and scripts/lechat-frame-permit.mjs runs beside it,
+# stripping Le Chat's frame-blocking headers from document responses only.
+# A stale dsh server from a different install on the same port is replaced;
+# anything else on the port is left alone with a warning.
 #
 #   dsh-helium-pwa            start (if needed) and open the app window
 #   dsh-helium-pwa install    install the .desktop entry + icon for the user
@@ -21,6 +24,8 @@
 #               instead of the checkout
 #   HELIUM_BIN  Helium binary (default: `helium-browser` from PATH; /bin/true
 #               for headless smoke tests)
+#   DSH_LECHAT_CDP_PORT  loopback DevTools port for the Le Chat frame permit
+#               (default 3130)
 set -u
 
 PORT="${DSH_PORT:-3080}"
@@ -42,6 +47,8 @@ CLI_SRC="$REPO_ROOT/apps/cli/src/bin.ts"
 BUN=$(command -v bun || true)
 VIBE_STORE="${VIBE_HOME:-$HOME/.vibe/logs/session}"
 VIBE_IMPORT_STATE="$DSH_HOME_DIR/logs/vibe-import.state"
+LECHAT_CDP_PORT="${DSH_LECHAT_CDP_PORT:-3130}"
+LECHAT_PERMIT="$DSH_HOME_DIR/logs/lechat-frame-permit"
 
 if [ "${1:-}" = "install" ]; then
   apps="$HOME/.local/share/applications"
@@ -197,6 +204,39 @@ maybe_import_vibe() {
   fi
 }
 
+# Purge a persisted Le Chat service worker registration from the window
+# profile while the browser is closed. Once chat.mistral.ai's sw.js controls
+# the origin, Chromium routes document loads through the worker, where the
+# permit daemon's response interception cannot run, and the pane silently
+# dies. The daemon blocks sw.js itself from now on, so this only removes
+# residue from before that guard existed; it needs the browser closed, which
+# is why it runs here, before exec.
+maybe_purge_lechat_sw() {
+  [ -d "$PROFILE/Default/Service Worker" ] || return 0
+  pgrep -f -- "--user-data-dir=$PROFILE" >/dev/null 2>&1 && return 0
+  rm -rf "$PROFILE/Default/Service Worker" 2>/dev/null \
+    && echo "dsh-helium-pwa: purged Le Chat service worker registration" >&2
+}
+
+# The in-window Le Chat pane (apps/web/public/lechat-in-app.js) embeds
+# chat.mistral.ai in a sandboxed iframe; the engine only accepts the frame
+# while scripts/lechat-frame-permit.mjs strips Le Chat's frame-blocking
+# headers through the window's DevTools port. Singleton via pidfile, started
+# before the window so the very first load is already covered.
+maybe_start_lechat_permit() {
+  [ "$RUN_MODE" = "source" ] || return 0
+  [ -n "$BUN" ] || return 0
+  [ -f "$REPO_ROOT/scripts/lechat-frame-permit.mjs" ] || return 0
+  if [ -f "$LECHAT_PERMIT.pid" ] && kill -0 "$(cat "$LECHAT_PERMIT.pid" 2>/dev/null)" 2>/dev/null; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$LECHAT_PERMIT.pid")"
+  setsid nohup "$BUN" "$REPO_ROOT/scripts/lechat-frame-permit.mjs" \
+    --cdp-port "$LECHAT_CDP_PORT" --app-origin "$BASE" \
+    >>"$LECHAT_PERMIT.log" 2>&1 < /dev/null &
+  echo $! >"$LECHAT_PERMIT.pid"
+}
+
 # One probe pass: HTTP status code, listening pid, its cmdline, classification.
 probe_all() {
   code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$BASE" 2>/dev/null); code=${code:-000}; [ -z "$code" ] && code=000
@@ -275,4 +315,7 @@ if [ "$code" = "401" ] && [ "$started_new" != "yes" ]; then
   [ -n "$t" ] && url="$t"
 fi
 
-exec "$HELIUM" --user-data-dir="$PROFILE" --class=deepseek-harness --app="$url"
+maybe_purge_lechat_sw
+maybe_start_lechat_permit
+
+exec "$HELIUM" --user-data-dir="$PROFILE" --class=deepseek-harness --remote-debugging-port="$LECHAT_CDP_PORT" --app="$url"
