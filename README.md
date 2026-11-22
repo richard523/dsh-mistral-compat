@@ -20,6 +20,8 @@ Review the [safety notice](SAFETY.md) before running the project.
 
 **How it diverges.** The fork carries upstream master up to `39163dd30f` (the PR-\#8422 `worktree-sync-release-dsh-0.2.2-rc.3-to-master` merge, 2026-11-13) and commits strictly on top. Everything above that base is fork-only (`git log --oneline 39163dd30f..master`); upstream has continued separately since. Live drift in both directions: `git rev-list --left-right --count origin/master...master` (behind upstream, then ahead of it). Folding a newer upstream release in moves the base forward and re-anchors that fork-only span.
 
+**Weekly check.** An agent runs `scripts/upstream-check.sh` on a schedule (Monday 02:00, America/Chicago): it fetches both remotes and reports drift, unpushed local commits, and any upstream `dsh-v*` release newer than the fork base — exiting 3 when a sync candidate exists. The check never merges or pushes; folding a release in stays a deliberate, reviewed step.
+
 This fork (`dsh-mistral-compat`) layers the following on top of upstream:
 
 - **Bun everywhere.** Runtime, scripts, and CI run on [Bun](https://bun.sh); profile module resolution is materialized as `node_modules` symlinks. `bunx @deepseek-ai/dsh …` is the primary entrypoint. A Bun host consumes the first `--` after an entry script as its own terminator, which silently dropped the private delimiter the managed-subprocess runner requires — every `bash`, `glob`, and `grep` call failed with `subprocess runner requires target argv after a private -- delimiter`. The runner entry now restores that delimiter on a Bun host.
