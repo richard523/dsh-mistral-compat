@@ -14,7 +14,19 @@
  * interceptor (e.g. plain `dsh web` in a desktop app build without the
  * launch wiring), the pane still opens but the frame shows a blocked page.
  *
- * Toggle: the button, or Ctrl+Alt+M; Escape closes.
+ * Toggle: the button, or Ctrl+Alt+M; Escape closes. Both also work from
+ * INSIDE the pane: a key listener injected into Le Chat's documents echoes
+ * Escape/Ctrl+Alt+M back here through postMessage (a cross-origin frame never
+ * reaches the window keydown), and the app translates that the same way.
+ *
+ * Focus handoff both ways, so nobody ever clicks between chat surfaces:
+ * a user-gesture open routes the keyboard into the Le Chat frame instantly
+ * and marks the panel so the permit daemon focuses Le Chat's actual composer
+ * (the caret needs a CDP evaluate inside the cross-origin frame); closing the
+ * pane — from either side — puts the keyboard back on the harness composer
+ * (`div[data-composer-input]`, the same raw focus the app itself uses).
+ * The boot-time restore of an open pane never grabs focus.
+ *
  * State: open/closed in localStorage; session persists between toggles.
  */
 ;(function () {
@@ -22,6 +34,9 @@
 
   var OPEN_KEY = 'dsh-lechat-pane-open'
   var URL = 'https://chat.mistral.ai/'
+  // Origins the pane accepts a dismissal echo from: the embedded chat and its
+  // auth pages carry the daemon-injected key listener.
+  var ECHO_ORIGINS = ['https://chat.mistral.ai', 'https://v2.auth.mistral.ai']
   var started = false
   var panel, frame, btn
 
@@ -144,6 +159,15 @@
       }
     }, true)
 
+    // Dismissal echo from inside the pane: Le Chat documents run a small
+    // injected listener (see scripts/lechat-frame-permit.mjs) that forwards
+    // Escape/Ctrl+Alt+M here, because key events never cross the origin
+    // boundary on their own.
+    window.addEventListener('message', function (event) {
+      if (event.data !== 'dsh-lechat-dismiss' || ECHO_ORIGINS.indexOf(event.origin) === -1) return
+      if (isOpen()) hide()
+    })
+
     if (localStorage.getItem(OPEN_KEY) === '1') show()
   }
 
@@ -152,20 +176,39 @@
   }
 
   function toggle() {
-    isOpen() ? hide() : show()
+    isOpen() ? hide() : show(true)
   }
 
-  function show() {
+  function show(fromUser) {
     if (!frame.getAttribute('src')) frame.src = URL
     panel.classList.add('open')
     btn.classList.add('active')
     localStorage.setItem(OPEN_KEY, '1')
+    if (fromUser) {
+      // Route the keyboard into the frame right away (cross-origin Window
+      // focus is one of the few calls allowed across the boundary); typing
+      // then reaches whatever holds focus inside Le Chat — the composer,
+      // once the daemon's watcher lands the caret there.
+      try { frame.contentWindow.focus() } catch (e) { /* frame missing: ignore */ }
+      // Mailbox read-and-cleared by the daemon's poll: this pane-open wants
+      // the composer focused.
+      panel.setAttribute('data-lechat-focus', '1')
+    }
   }
 
   function hide() {
     panel.classList.remove('open')
     btn.classList.remove('active')
     localStorage.setItem(OPEN_KEY, '0')
+    // Disarm any not-yet-consumed focus request: an open-close race within
+    // one daemon poll must not focus the composer of a closed pane.
+    panel.removeAttribute('data-lechat-focus')
+    // Back to the harness chat panel: the same raw element focus the app's
+    // own focusDraftEditor uses, so Lexical picks up and restores selection.
+    var composer = document.querySelector('div[data-composer-input]')
+    if (composer) {
+      try { composer.focus({ preventScroll: true }) } catch (e) { /* absent: ignore */ }
+    }
   }
 
   if (document.readyState === 'loading') {
