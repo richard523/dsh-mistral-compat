@@ -25,11 +25,39 @@
  *   --new-only  skip sessions already present in the dsh store: never overwrites a
  *              session that was since resumed/extended inside dsh (safe for repeated runs)
  *   --with-tools  also render tool calls/results as note messages (default: messages only)
+ *
+ * --new-only LIVE SESSION REFRESH (race safety): a session whose CLI is still
+ * running (lock in <vibe-home>/active with a live process id) keeps growing on
+ * the Vibe side, but the plain "skip if present" rule would freeze the dsh copy
+ * at whatever turn the import caught — mid-turn imports even truncate silently
+ * when a chunk file is read mid-write. For live sessions --new-only therefore
+ * re-imports the CURRENT state whenever:
+ *   - the dsh copy still hashes to the importer's last written snapshot
+ *     (~/.dsh/logs/vibe-import.snapshots.json): the hash changes on the first
+ *     in-dsh resume (the v4 protected-head swap), so a session that was ever
+ *     continued inside dsh is refused forever — clobber protection is
+ *     tamper-evident, not assumed;
+ *   - and the Vibe chunks grew since that snapshot (no churn when idle);
+ *   - and the chunk files are quiescent across the read (mtime+size stable,
+ *     4 attempts): a session mid-turn is DEFERRED this run — exit 3, so the
+ *   pwa wrapper does not touch its state file and the next window click retries.
+ * A store copy imported by an older importer (no snapshot yet) is bootstrapped
+ * as un-touched only when file mtimes still equal the projcache's
+ * identity.createdAt (the import instant within a small window) — anything
+ * later means dsh wrote to it and the session is left alone with a warning.
+
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+
+/** Synchronous ms sleep that works on bun and node alike. */
+const sleepMs = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+/** Chunk files that failed to parse during a run (visibility, never silent). */
+const parseFails = []
 
 /** realpath when the path still exists, else the resolved path (dead cwds import as ungrouped strays). */
 const lenientRealpath = p => {
@@ -74,7 +102,7 @@ function legacyMessages(file, tools) {
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     if (!line.trim()) continue
     let m
-    try { m = JSON.parse(line) } catch { continue }
+    try { m = JSON.parse(line) } catch { parseFails.push(basename(file)); continue }
     const text = textOf(m.content)
     if (m.role === 'assistant') {
       let full = text
@@ -100,7 +128,7 @@ function unifiedMessages(chunkDir, tools) {
   for (const cf of readdirSync(chunkDir)) {
     if (!cf.endsWith('.json')) continue
     let list
-    try { list = JSON.parse(readFileSync(join(chunkDir, cf), 'utf8')) } catch { continue }
+    try { list = JSON.parse(readFileSync(join(chunkDir, cf), 'utf8')) } catch { parseFails.push(cf); continue }
     if (Array.isArray(list)) entries.push(...list)
   }
   entries.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
@@ -117,7 +145,26 @@ function unifiedMessages(chunkDir, tools) {
   return out
 }
 
-/** Collect every Vibe session as { id, cwd, startTime, messages }. */
+/**
+ * Whether the session's CLI still holds its lock (live process). kill(pid,0)
+ * alone cannot tell a reused pid from the real CLI, so on Linux the holder's
+ * /proc cmdline must also look like the vibe CLI ("vibe-acp" etc). Sessions
+ * whose lock holder is gone are NOT live: refresh stops with them, which is
+ * the handoff point where the dsh copy becomes the frozen record.
+ */
+function lockedLive(id) {
+  try {
+    const lock = JSON.parse(readFileSync(join(vibeHome, 'active', `${id}.lock.json`), 'utf8'))
+    const pid = lock.process_id
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    process.kill(pid, 0) // throws when the process is gone
+    const cmdline = readFileSync(join('/proc', String(pid), 'cmdline'), 'utf8')
+    return /vibe/i.test(cmdline)
+  } catch { /* no lock, dead pid, reused pid, or unreadable /proc: not live */ }
+  return false
+}
+
+/** Collect every Vibe session as { id, cwd, startTime, live, filesOf, load }. */
 function collect() {
   const sessions = new Map() // session_id -> chat source (unified wins over legacy)
   const legacyRoot = vibeHome
@@ -134,7 +181,7 @@ function collect() {
       if (!id || sessions.has(id)) continue
       const cwd = meta.environment?.working_directory
       if (!cwd) continue
-      sessions.set(id, { id, cwd, startTime: Date.parse(meta.start_time ?? '') || 0, load: () => legacyMessages(messagesPath, withTools) })
+      sessions.set(id, { id, cwd, startTime: Date.parse(meta.start_time ?? '') || 0, live: lockedLive(id), filesOf: () => [messagesPath], load: () => legacyMessages(messagesPath, withTools) })
     }
   }
   const unifiedRoot = join(vibeHome, 'unified')
@@ -150,7 +197,7 @@ function collect() {
       const id = meta.session_id ?? entry
       const cwd = meta.environment?.working_directory
       if (!cwd) continue
-      sessions.set(id, { id, cwd, startTime: Date.parse(meta.start_time ?? '') || 0, load: () => unifiedMessages(chunkDir, withTools) })
+      sessions.set(id, { id, cwd, startTime: Date.parse(meta.start_time ?? '') || 0, live: lockedLive(id), filesOf: () => readdirSync(chunkDir).filter(f => f.endsWith('.json')).map(f => join(chunkDir, f)), load: () => unifiedMessages(chunkDir, withTools) })
     }
   }
   return [...sessions.values()]
@@ -172,33 +219,133 @@ function slugOf(value) {
 }
 
 const sessionsRoot = join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'sessions')
+const snapshotsFile = join(dirname(sessionsRoot), 'logs', 'vibe-import.snapshots.json')
 
-/**
- * Whether this vibe session already has a dsh store directory. --new-only
- * skips those: re-import overwrites the session log in place, so a session
- * that was resumed and extended inside dsh would lose the dsh-side turns.
- */
-function alreadyInStore(s) {
-  const dir = join(sessionsRoot, `--${slugOf(lenientRealpath(s.cwd)).slice(0, 251)}--`)
-  return existsSync(join(dir, `session-${s.id}`))
+const sha256Of = file => createHash('sha256').update(readFileSync(file)).digest('hex')
+
+/** dsh-side paths of session s, mirroring import-acp.mjs's projectDir(). */
+function storePathsOf(s) {
+  const dir = join(sessionsRoot, `--${slugOf(lenientRealpath(s.cwd)).slice(0, 251)}--`, `session-${s.id}`)
+  return { dir, log: join(dir, 'session.v4.jsonl.zstd') }
 }
 
-const picked = all.filter(s =>
-  (dirs.length === 0 || dirs.includes(lenientRealpath(s.cwd)))
-  && (since === undefined || s.startTime >= since)
-  && (!newOnly || !alreadyInStore(s)))
-console.log(`vibe store: ${all.length} session(s); importing ${picked.length}` + (newOnly ? ` (--new-only skipped ${all.length - picked.length} already in the dsh store)` : ''))
+function readSnapshots() {
+  try { return JSON.parse(readFileSync(snapshotsFile, 'utf8')) } catch { return {} }
+}
+
+/**
+ * Whether a legacy store copy (no snapshot: written by an older importer) is
+ * provably untouched by dsh. import-acp stamps identity.createdAt (the import
+ * instant) into the plain-JSON projcache alongside the zstd log, and nothing
+ * writes those files until the session is RESUMED inside dsh (first resume
+ * swaps the v4 protected head and rewrites the log; a UI title edit rewrites
+ * the projcache). Any mtime drift beyond the window means dsh wrote to it.
+ */
+function legacyUntouched(s, logPath) {
+  const projPath = join(dirname(sessionsRoot), 'storages', 'session_projcache', 'sessions', `session-${s.id}.json`)
+  if (!existsSync(projPath)) return false
+  let createdAt
+  try { createdAt = JSON.parse(readFileSync(projPath, 'utf8')).record?.identity?.createdAt } catch { return false }
+  if (typeof createdAt !== 'number') return false
+  try {
+    for (const p of [logPath, projPath]) {
+      if (Math.abs(statSync(p).mtimeMs - createdAt) > 2000) return false
+    }
+    return true
+  } catch { return false }
+}
+
+/**
+ * Load a LIVE session's messages only from a quiescent source. A live CLI
+ * session mid-turn keeps rewriting chunks; racing the writes only by luck
+ * would freeze a truncated copy into the store, so quiescence is OBSERVED
+ * over a time fence, not merely inferred from a read. Returns
+ * { messages, readAt } with readAt = the observation instant; the snapshot
+ * stamps readAt so any write at or after it forces a refresh on the next
+ * run. null when the session never goes quiet (deferred).
+ */
+function stableLoad(s) {
+  const fingerprintOf = () => {
+    let fp = ''
+    for (const f of s.filesOf().sort()) {
+      const st = statSync(f)
+      fp += `${st.mtimeMs}:${st.size};`
+    }
+    return fp
+  }
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const before = fingerprintOf()
+    const readAt = Date.now()
+    sleepMs(300) // observation fence: a mid-turn writer moves within 300ms
+    if (before !== fingerprintOf()) {
+      console.error(`  ${s.id}: writes landed during the observation fence (attempt ${attempt}), re-checking`)
+      continue
+    }
+    const messages = s.load()
+    if (before !== fingerprintOf()) {
+      console.error(`  ${s.id}: source moved mid-read (attempt ${attempt}), re-checking`)
+      continue
+    }
+    return { messages, readAt }
+  }
+  return null
+}
+
+// Pick: new sessions always; in-store LIVE sessions only as a race-safe
+// refresh (clobber guard + content-change gate); everything else stays
+// protected/skipped exactly like the old --new-only rule.
+const snapshots = readSnapshots()
+let fresh = 0
+let refreshed = 0
+let refused = 0
+let liveIdle = 0
+let deadInStore = 0
+const picked = []
+for (const s of all) {
+  if (dirs.length !== 0 && !dirs.includes(lenientRealpath(s.cwd))) continue
+  if (since !== undefined && s.startTime < since) continue
+  if (!newOnly) { picked.push(s); fresh++; continue }
+  const log = storePathsOf(s).log
+  if (!existsSync(log)) { picked.push(s); fresh++; continue }
+  if (!s.live) { deadInStore++; continue }
+  const snap = snapshots[s.id]
+  if (snap) {
+    if (sha256Of(log) !== snap.sha) {
+      console.error(`  refusing ${s.id}: the dsh copy changed since the import (resumed/extended inside dsh) — not clobbering`)
+      refused++
+      continue
+    }
+  } else if (!legacyUntouched(s, log)) {
+    console.error(`  refusing ${s.id}: no import snapshot and the dsh copy is not provably untouched — not clobbering`)
+    refused++
+    continue
+  }
+  const lastAt = snap?.at ?? Number.NEGATIVE_INFINITY
+  const newestSrc = Math.max(0, ...s.filesOf().map(f => statSync(f).mtimeMs))
+  if (newestSrc <= lastAt) { liveIdle++; continue }
+  picked.push(s)
+  refreshed++
+}
+console.log(`vibe store: ${all.length} session(s); importing ${picked.length} (fresh ${fresh}, live refresh ${refreshed})` + (newOnly ? `; skipped ${refused + liveIdle + deadInStore} in-store (${refused} touched-in-dsh refused, ${deadInStore} cli-not-running, ${liveIdle} live-but-unchanged)` : ''))
 
 if (dryRun) {
-  for (const s of picked) console.log(`  would import ${s.id}  cwd=${s.cwd}  started=${new Date(s.startTime).toISOString()}`)
+  for (const s of picked) console.log(`  would import ${s.id} (${s.live && existsSync(storePathsOf(s).log) ? 'live refresh' : 'new'})  cwd=${s.cwd}  started=${new Date(s.startTime).toISOString()}`)
   process.exit(0)
 }
 
 rmSync(stage, { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
 const docs = []
+const deferred = []
+const readAtById = new Map()
 for (const s of picked) {
-  const messages = s.load()
+  const stable = s.live ? stableLoad(s) : { messages: s.load(), readAt: Date.now() }
+  if (stable === null) {
+    deferred.push(s.id)
+    console.error(`  deferred ${s.id}: the live CLI session is still writing; the next run picks it up`)
+    continue
+  }
+  const { messages, readAt } = stable
   if (messages.length === 0) continue
   const doc = {
     sessionId: `session-${s.id}`,
@@ -208,8 +355,15 @@ for (const s of picked) {
   }
   writeFileSync(join(stage, `${s.id}.json`), JSON.stringify(doc))
   docs.push(doc)
+  readAtById.set(s.id, readAt)
 }
-if (docs.length === 0) { console.log('nothing to import'); process.exit(0) }
+if (parseFails.length > 0) {
+  console.error(`  NOTE: ${parseFails.length} source parse failure(s) were skipped (mid-write or corrupt): ${[...new Set(parseFails)].join(', ')}`)
+}
+if (docs.length === 0) {
+  console.log('nothing to import' + (deferred.length ? `; deferred ${deferred.length} live session(s) mid-write` : ''))
+  process.exit(deferred.length ? 3 : 0)
+}
 
 // Hand the staged docs to the generic ACP importer (each doc carries its cwd).
 const importer = join(import.meta.dirname, 'import-acp.mjs')
@@ -243,5 +397,26 @@ if (existsSync(workspaceFile)) {
 } else {
   console.log(`no ${workspaceFile}; imported sessions will be grouped on next boot by the registry reconcile`)
 }
+// Record what we wrote: the next run proves the dsh copy is still ours via
+// the hash (clobber guard) and skips refreshes while the vibe side is idle.
+const snapNow = readSnapshots()
+const byId = new Map(all.map(s => [s.id, s]))
+let snapFailed = 0
+for (const doc of docs) {
+  const id = doc.sessionId.replace(/^session-/, '')
+  try {
+    const { log } = storePathsOf(byId.get(id))
+    // `at` = the quiescence observation instant: any write at or after it
+    // keeps the session eligible for refresh on the next run.
+    snapNow[id] = { sha: sha256Of(log), at: readAtById.get(id) ?? Date.now(), n: doc.messages.length }
+  } catch (e) {
+    snapFailed++
+    console.error(`  snapshot failed for ${id}: ${e.message} — next run treats the dsh copy as unknown (refuses to refresh it)`)
+  }
+}
+mkdirSync(dirname(snapshotsFile), { recursive: true })
+writeFileSync(snapshotsFile, JSON.stringify(snapNow, null, 2) + '\n')
+
 rmSync(stage, { recursive: true, force: true })
-console.log(`done: ${docs.length} vibe session(s) imported. Restart the dsh web UI to see new groups.`)
+console.log(`done: ${docs.length} vibe session(s) imported (${snapFailed} snapshot failure(s))${deferred.length ? `; ${deferred.length} deferred mid-write (exit 3: wrapper must not touch its state file so the next run retries)` : '. Restart the dsh web UI to see new groups.'}`)
+if (deferred.length) process.exit(3)
