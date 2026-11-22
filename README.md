@@ -16,6 +16,10 @@ Review the [safety notice](SAFETY.md) before running the project.
 
 ## Differences from upstream `deepseek-ai/deepseek-harness`
 
+**Where the fork line lives.** This fork is [`richard523/dsh-mistral-compat`](https://github.com/richard523/dsh-mistral-compat) — clone it from there, not from upstream. In this checkout, `template-origin` points at that repo and local `master` pushes to its `main` (`git push template-origin master:main`); `origin` stays a read-only pointer at `github.com/deepseek-ai/deepseek-harness`, fetched for upstream tags, branches, and history — never pushed to.
+
+**How it diverges.** The fork carries upstream master up to `39163dd30f` (the PR-\#8422 `worktree-sync-release-dsh-0.2.2-rc.3-to-master` merge, 2026-11-13) and commits strictly on top. Everything above that base is fork-only (`git log --oneline 39163dd30f..master`); upstream has continued separately since. Live drift in both directions: `git rev-list --left-right --count origin/master...master` (behind upstream, then ahead of it). Folding a newer upstream release in moves the base forward and re-anchors that fork-only span.
+
 This fork (`dsh-mistral-compat`) layers the following on top of upstream:
 
 - **Bun everywhere.** Runtime, scripts, and CI run on [Bun](https://bun.sh); profile module resolution is materialized as `node_modules` symlinks. `bunx @deepseek-ai/dsh …` is the primary entrypoint. A Bun host consumes the first `--` after an entry script as its own terminator, which silently dropped the private delimiter the managed-subprocess runner requires — every `bash`, `glob`, and `grep` call failed with `subprocess runner requires target argv after a private -- delimiter`. The runner entry now restores that delimiter on a Bun host.

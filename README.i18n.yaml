@@ -7,13 +7,19 @@
   zh: 88a76d7f7f0b260e
 /deepseek-harness/developer-preview:
   en: 4ef4d8a71ac143f0
-  zh: 1bfc3149ba8e5543
+  zh: e0193601c4ba722d
+/deepseek-harness/differences-from-upstream-deepseek-ai-deepseek-harness:
+  en: 0601a055225208f5
+  zh: 98c421fbd42f00ae
 /deepseek-harness/run:
   en: 4e0248e4c6474fc6
   zh: eb2fb8d78c7d6bc0
 /deepseek-harness/run/run-from-npm:
-  en: e22005cd42e6cbad
-  zh: 0f536f4208df1d60
+  en: 8508f5ae8fbaa694
+  zh: 411d24d025040895
+/deepseek-harness/run/acp-agent-chats-from-any-client:
+  en: 8cff91a5ebc0bb21
+  zh: 5046c408123222eb
 /deepseek-harness/run/run-from-source:
   en: 819e3f7c144d0d64
   zh: de815f040975dba7

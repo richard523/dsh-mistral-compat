@@ -16,6 +16,10 @@ DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来
 
 ## 与上游 `deepseek-ai/deepseek-harness` 的差异
 
+**Fork 线所在仓库。** 本 fork 即 [`richard523/dsh-mistral-compat`](https://github.com/richard523/dsh-mistral-compat)：请从该仓库克隆，而不是上游。本检出中 `template-origin` 指向该仓库，本地 `master` 推送到其 `main`（`git push template-origin master:main`）；`origin` 始终是只读指针，指向 `github.com/deepseek-ai/deepseek-harness`，仅用于拉取上游 tag、分支与历史，从不推送。
+
+**分歧方式。** Fork 承载上游 master 直至 `39163dd30f`（PR #8422 的 `worktree-sync-release-dsh-0.2.2-rc.3-to-master` 合并，2026-11-13），并严格在其上提交。该基点之上的全部提交均为 fork 专属（`git log --oneline 39163dd30f..master`）；此后上游继续独立演进。随时查看双向漂移：`git rev-list --left-right --count origin/master...master`（先落后、后领先）。合入更新的上游发布时，基点前移，fork 专属区间随之重新锚定。
+
 本仓库（`dsh-mistral-compat`）在上游基础上增加：
 
 - **全面使用 Bun。** 运行时、脚本与 CI 均改用 [Bun](https://bun.sh)；profile 模块解析物化为 `node_modules` 符号链接。主入口为 `bunx @deepseek-ai/dsh …`。Bun 宿主会把入口脚本之后的第一个 `--` 当作自己的选项终止符并吞掉，托管子进程运行器因此丢失了必需的私有分隔符——所有 `bash`、`glob`、`grep` 调用都报 `subprocess runner requires target argv after a private -- delimiter`。运行器入口现在会在 Bun 宿主上补回该分隔符。
@@ -39,6 +43,16 @@ bunx @deepseek-ai/dsh web
 ```
 
 该命令默认会在 `http://127.0.0.1:3080` 启动 Web UI，本机启动时还会用默认浏览器打开页面。通过 SSH 启动时只打印宿主机 URL，因为本地转发地址由 SSH 客户端或编辑器持有。传入 `--no-open` 可仅运行服务器而不打开浏览器。详见 [Web UI 指南](docs/user/guide/index.zh.md)。
+
+### ACP（任意客户端的 agent 会话）
+
+`acp` profile 通过 JSON-RPC stdio 使用 Agent Client Protocol，因此任何支持 ACP 的客户端或编辑器（Zed、其他 agent、脚本）都可以拉起它并创建/列出/恢复/关闭 agent 会话：
+
+```sh
+bunx @deepseek-ai/dsh acp
+```
+
+web 与 ACP profile 均默认使用 Mistral 模型（`mistral-large-latest`）；首次运行时会提示输入 `MISTRAL_API_KEY`（来自 https://console.mistral.ai）并保存到 `~/.dsh/.env`（0600）。也可以直接设置该环境变量以跳过提示。
 
 <a id="run-from-source"></a>
 
