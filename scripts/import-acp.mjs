@@ -93,6 +93,25 @@ function writeSession(chat, fallbackCwd, fallbackHost) {
     push('turn/end', { turn, reason: { kind: 'completed' } })
     openTurn = false
   }
+  /**
+   * The v4 surface invariant: the FIRST surface message of the log must be an
+   * (empty) `system/message` protected head — a resumed dsh Agent replaces it
+   * with the real system prompt. An imported log without it loads for reading,
+   * but the first in-dsh resume then appends its system prompt AFTER the
+   * imported surface and permanently fails every later load with
+   * `system/message requires a protected first surface head`.
+   */
+  let headPlaced = false
+  let turnSteps = 0
+  const openTurnAt = () => {
+    turn += 1
+    turnSteps = 0
+    push('turn/start', { turn })
+    openTurn = true
+  }
+  const head = () => (headPlaced ? [] : (headPlaced = true, [
+    ['system/message', { turn, step: 1, message: { role: 'system', content: [], source: { kind: 'system-prompt' }, id: randomUUID() } }],
+  ]))
   for (const m of chat.messages) {
     const role = m.role === 'assistant' ? 'assistant' : 'user'
     const text = toText(m.content)
@@ -101,19 +120,18 @@ function writeSession(chat, fallbackCwd, fallbackHost) {
     // for the stored log to read back; each user message opens a fresh turn.
     if (role === 'user') {
       closeTurn()
-      turn += 1
-      push('turn/start', { turn })
-      openTurn = true
+      openTurnAt()
+      const first = !headPlaced
+      if (first) { push('step/start', { turn, step: ++turnSteps }) }
+      for (const [type, data] of head()) push(type, data)
       push('user/message', { content: [{ type: 'text', text }], source: { kind: 'user' }, role: 'user', id: randomUUID() })
+      if (first) push('step/end', { turn, step: turnSteps })
     } else {
-      if (!openTurn) {
-        turn += 1
-        push('turn/start', { turn })
-        openTurn = true
-      }
-      push('step/start', { turn, step: 1 })
-      push('assistant/message', { turn, step: 1, stream: [], message: { role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: m.provider ?? 'imported', model: m.model ?? 'imported' }, id: randomUUID() } })
-      push('step/end', { turn, step: 1 })
+      if (!openTurn) openTurnAt()
+      push('step/start', { turn, step: ++turnSteps })
+      for (const [type, data] of head()) push(type, data)
+      push('assistant/message', { turn, step: turnSteps, stream: [], message: { role: 'assistant', content: [{ type: 'text', text }], source: { kind: 'model', provider: m.provider ?? 'imported', model: m.model ?? 'imported' }, id: randomUUID() } })
+      push('step/end', { turn, step: turnSteps })
       closeTurn()
     }
   }
