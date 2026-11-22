@@ -20,7 +20,7 @@ DeepSeek Harness 处于 _开发者预览_ 阶段，正在快速迭代。**未来
 
 **分歧方式。** Fork 承载上游 master 直至 `39163dd30f`（PR #8422 的 `worktree-sync-release-dsh-0.2.2-rc.3-to-master` 合并，2026-11-13），并严格在其上提交。该基点之上的全部提交均为 fork 专属（`git log --oneline 39163dd30f..master`）；此后上游继续独立演进。随时查看双向漂移：`git rev-list --left-right --count origin/master...master`（先落后、后领先）。合入更新的上游发布时，基点前移，fork 专属区间随之重新锚定。
 
-**每周检查。** Agent 按计划（每周一 02:00，America/Chicago）运行 `scripts/upstream-check.sh`：抓取两个远端，报告漂移、未推送的本地提交，以及任何比 fork 基点更新的上游 `dsh-v*` 版本——存在可同步版本时退出码为 3。检查本身从不合并或推送；合入上游发布始终是一次经过审阅的独立步骤。
+**每周检查。** Agent 按计划（每周一 02:00，America/Chicago）运行 `scripts/upstream-check.sh`：抓取两个远端，报告漂移、未推送的本地提交，以及任何比 fork 基点更新的上游 `dsh-v*` 版本——存在可同步版本时退出码为 3。检查本身从不合并或推送；合入上游发布始终是一次经过审阅的独立步骤。该例程自身的历史——逐次报告与只增不删的决策台账——存放在仓库之外的 `~/.dsh/upstream-sync/`；仓库只通过经过审阅的同步发生变更。
 
 本仓库（`dsh-mistral-compat`）在上游基础上增加：
 
