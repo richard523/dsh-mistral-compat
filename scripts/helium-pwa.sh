@@ -11,7 +11,19 @@
 # button, Ctrl+Alt+M) embeds chat.mistral.ai live: the window is opened with a
 # loopback DevTools port and scripts/lechat-frame-permit.mjs runs beside it,
 # stripping Le Chat's frame-blocking headers from document responses only.
-# A stale dsh server from a different install on the same port is replaced;
+# The daemon is also the pane's keyboard usher: opening the pane (Ctrl+Alt+M,
+# the Mistral button) moves the keyboard into Le Chat and focuses its
+# composer, so typing starts immediately; Escape or Ctrl+Alt+M again — from
+# either side of the origin — closes the pane and puts the keyboard back on
+# the dsh chat composer. The daemon also launders the top-level Le Chat
+# sign-in into the pane's third-party cookie partition, so signing in once
+# via the pane header's ↗ window signs the pane in as well. The window is an X11 ozone surface
+# (--ozone-platform=x11): Chromium 155 native-Wayland does not take its
+# app_id from --class, so GNOME could not associate the window with the
+# .desktop entry (generic icon, no dash link); under X11 WM_CLASS res_class
+# == --class and StartupWMClass matching works (the helium-discord-pwa app
+# proved this path live). --password-store=basic keeps the GNOME keyring out
+# of the startup path. A stale dsh server from a different install on the same port is replaced;
 # anything else on the port is left alone with a warning.
 #
 #   dsh-helium-pwa            start (if needed) and open the app window
@@ -56,6 +68,9 @@ if [ "${1:-}" = "install" ]; then
   mkdir -p "$apps" "$icons" "$HOME/.local/bin"
   cp "$here/../assets/linux/deepseek-harness.desktop" "$apps/deepseek-harness.desktop"
   cp "$here/../apps/web/public/icon-512.png" "$icons/deepseek-harness.png"
+  # Icon= by absolute path, not theme name: theme-name lookup invites generic
+  # fallbacks when the name misses (the Zed entry set this precedent).
+  sed -i "s|^Icon=.*|Icon=$icons/deepseek-harness.png|" "$apps/deepseek-harness.desktop"
   ln -sf "$here/helium-pwa.sh" "$HOME/.local/bin/dsh-helium-pwa"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" || true
   echo "installed: $apps/deepseek-harness.desktop (Exec=dsh-helium-pwa) + icon + ~/.local/bin/dsh-helium-pwa"
@@ -120,7 +135,13 @@ start_server() {
   STARTPOS=$(wc -c < "$LOG" 2>/dev/null); STARTPOS=$(( ${STARTPOS:-0} + 0 ))
   maybe_rebuild_frontend
   if [ "$RUN_MODE" = "source" ]; then
-    setsid nohup "$BUN" --expose-internals --import tsx/esm "$CLI_SRC" web --no-open --port "$PORT" >>"$LOG" 2>&1 < /dev/null &
+    # Run the server FROM THE CHECKOUT: bun resolves the tsx/esm preload (and
+    # the CLI's workspace deps) against the server's own cwd, and a desktop
+    # launch inherits $HOME — where no tsx is resolvable (~/node_modules has
+    # stray non-workspace packages and a ~/package.json beside it), so the
+    # server died instantly with `preload not found "tsx/esm"` and the window
+    # opened at a dead port. The checkout's node_modules owns the right tsx.
+    (cd "$REPO_ROOT" && setsid nohup "$BUN" --expose-internals --import tsx/esm "$CLI_SRC" web --no-open --port "$PORT" >>"$LOG" 2>&1 < /dev/null &)
   elif [ -n "${RUN_BIN:-}" ]; then
     setsid nohup "$BUN" --expose-internals "$RUN_BIN" web --no-open --port "$PORT" >>"$LOG" 2>&1 < /dev/null &
   else
@@ -318,4 +339,4 @@ fi
 maybe_purge_lechat_sw
 maybe_start_lechat_permit
 
-exec "$HELIUM" --user-data-dir="$PROFILE" --class=deepseek-harness --remote-debugging-port="$LECHAT_CDP_PORT" --app="$url"
+exec "$HELIUM" --password-store=basic --user-data-dir="$PROFILE" --ozone-platform=x11 --class=deepseek-harness --remote-debugging-port="$LECHAT_CDP_PORT" --app="$url"
